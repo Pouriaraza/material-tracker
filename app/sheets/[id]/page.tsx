@@ -420,14 +420,15 @@ export default function SheetPage({ params }: { params: { id: string } }) {
 
     try {
       // Update columns in database
-      for (const column of updatedColumns) {
+      for (let index = 0; index < updatedColumns.length; index++) {
+        const column = updatedColumns[index]
         await supabase.from("columns").upsert({
           id: column.id,
           sheet_id: params.id,
           name: column.name,
           type: column.type,
-          position: updatedColumns.findIndex((c) => c.id === column.id),
-          width: column.width,
+          position: index, // استفاده از index به جای findIndex
+          width: column.width || 120,
         })
       }
 
@@ -479,8 +480,19 @@ export default function SheetPage({ params }: { params: { id: string } }) {
       })
 
       setRows(updatedRows)
+
+      // نمایش پیام موفقیت
+      toast({
+        title: "Columns updated",
+        description: "Column changes have been saved successfully",
+      })
     } catch (err) {
       console.error("Error updating columns:", err)
+      toast({
+        title: "Error",
+        description: "Failed to update columns. Please try again.",
+        variant: "destructive",
+      })
     }
   }
 
@@ -718,9 +730,9 @@ export default function SheetPage({ params }: { params: { id: string } }) {
           if (existingColumn) {
             updatedColumns.push(existingColumn)
           } else {
-            // Create new column
+            // Create new column - استفاده از crypto.randomUUID()
             const newColumn: Column = {
-              id: `col-${Date.now()}-${i}`,
+              id: crypto.randomUUID(),
               name: headerName,
               type: "text", // Default to text
               width: 120,

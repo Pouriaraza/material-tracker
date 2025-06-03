@@ -61,9 +61,9 @@ export function ColumnManagementDialog({ open, onOpenChange, columns, onUpdateCo
     if (!columnName.trim()) return
 
     if (isAdding) {
-      // Add new column
+      // Add new column - استفاده از crypto.randomUUID() برای ID منحصر به فرد
       const newColumn: Column = {
-        id: "col-" + Date.now(),
+        id: crypto.randomUUID(),
         name: columnName,
         type: columnType,
       }
