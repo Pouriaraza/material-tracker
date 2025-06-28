@@ -1074,7 +1074,7 @@ export default function SheetPage({ params }: { params: { id: string } }) {
 
   if (loading) {
     return (
-      <div className="container mx-auto py-10 text-center">
+      <div className="container mx-auto py-6 sm:py-10 text-center">
         <p>Loading sheet...</p>
       </div>
     )
@@ -1082,7 +1082,7 @@ export default function SheetPage({ params }: { params: { id: string } }) {
 
   if (error) {
     return (
-      <div className="container mx-auto py-10">
+      <div className="container mx-auto py-6 sm:py-10 px-4">
         <div className="bg-destructive/10 p-4 rounded-md">
           <p className="text-destructive">{error}</p>
           <Button asChild className="mt-4">
@@ -1094,23 +1094,23 @@ export default function SheetPage({ params }: { params: { id: string } }) {
   }
 
   return (
-    <main className="container mx-auto py-6 px-4 md:px-6">
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center">
-          <Button variant="outline" size="icon" asChild className="mr-4">
+    <main className="container mx-auto py-4 sm:py-6 px-4 sm:px-6">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-4 sm:mb-6">
+        <div className="flex items-center w-full sm:w-auto">
+          <Button variant="outline" size="icon" asChild className="mr-3 sm:mr-4 flex-shrink-0">
             <Link href="/dashboard">
               <ArrowLeft className="h-4 w-4" />
             </Link>
           </Button>
 
           {isEditingName ? (
-            <div className="flex items-center">
+            <div className="flex items-center w-full sm:w-auto">
               <Input
                 ref={nameInputRef}
                 value={newSheetName}
                 onChange={(e) => setNewSheetName(e.target.value)}
                 onKeyDown={handleKeyDown}
-                className="h-10 text-xl font-bold mr-2 w-[300px]"
+                className="h-8 sm:h-10 text-lg sm:text-xl font-bold mr-2 w-full sm:w-[300px]"
                 disabled={isRenamingSheet}
               />
               <Button
@@ -1118,72 +1118,77 @@ export default function SheetPage({ params }: { params: { id: string } }) {
                 size="icon"
                 onClick={saveSheetName}
                 disabled={isRenamingSheet || newSheetName.trim() === "" || newSheetName === sheet?.name}
-                className="h-8 w-8"
+                className="h-6 w-6 sm:h-8 sm:w-8 flex-shrink-0"
               >
-                <Check className="h-4 w-4" />
+                <Check className="h-3 w-3 sm:h-4 sm:w-4" />
               </Button>
               <Button
                 variant="ghost"
                 size="icon"
                 onClick={cancelEditingName}
                 disabled={isRenamingSheet}
-                className="h-8 w-8"
+                className="h-6 w-6 sm:h-8 sm:w-8 flex-shrink-0"
               >
-                <X className="h-4 w-4" />
+                <X className="h-3 w-3 sm:h-4 sm:w-4" />
               </Button>
             </div>
           ) : (
-            <div className="flex items-center">
-              <h1 className="text-3xl font-bold">{sheet?.name}</h1>
+            <div className="flex items-center w-full sm:w-auto">
+              <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold truncate">{sheet?.name}</h1>
               <Button
                 variant="ghost"
                 size="icon"
                 onClick={startEditingName}
-                className="ml-2 h-8 w-8"
+                className="ml-2 h-6 w-6 sm:h-8 sm:w-8 flex-shrink-0"
                 title="Rename sheet"
               >
-                <Pencil className="h-4 w-4" />
+                <Pencil className="h-3 w-3 sm:h-4 sm:w-4" />
               </Button>
               <SheetPermissionsBadge sheetId={params.id} />
             </div>
           )}
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
           <Button
             variant="outline"
             size="sm"
             onClick={() => setShowShareLinkDialog(true)}
-            className="flex items-center gap-2"
+            className="flex items-center gap-2 w-full sm:w-auto"
           >
             <Share2 className="h-4 w-4" />
-            {publicLink ? "Manage Public Link" : "Create Public Link"}
+            <span className="hidden sm:inline">{publicLink ? "Manage Public Link" : "Create Public Link"}</span>
+            <span className="sm:hidden">Share</span>
           </Button>
           <Button
             variant="outline"
             size="sm"
             onClick={() => setShowPermissionsDialog(true)}
-            className="flex items-center gap-2"
+            className="flex items-center gap-2 w-full sm:w-auto"
           >
             <UserPlus className="h-4 w-4" />
-            Manage Access
+            <span className="hidden sm:inline">Manage Access</span>
+            <span className="sm:hidden">Access</span>
           </Button>
           <DeleteSheetButton sheetId={params.id} sheetName={sheet?.name || "this sheet"} />
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-4 mb-6 justify-between items-center">
-        <div className="flex gap-2 flex-wrap">
-          <Button onClick={() => setShowColumnManagementDialog(true)} className="flex items-center gap-2">
+      <div className="flex flex-col lg:flex-row gap-4 mb-4 sm:mb-6">
+        <div className="flex flex-wrap gap-2 flex-1">
+          <Button onClick={() => setShowColumnManagementDialog(true)} className="flex items-center gap-2" size="sm">
             <Settings className="h-4 w-4" />
-            Manage Columns
+            <span className="hidden sm:inline">Manage Columns</span>
+            <span className="sm:hidden">Columns</span>
           </Button>
-          <Button onClick={addNewRow} variant="outline" className="flex items-center gap-2">
+          <Button onClick={addNewRow} variant="outline" className="flex items-center gap-2" size="sm">
             <Plus className="h-4 w-4" />
-            New Row
+            <span className="hidden sm:inline">New Row</span>
+            <span className="sm:hidden">Row</span>
           </Button>
-          <Button onClick={addStatusColumn} variant="outline" className="flex items-center gap-2">
+          <Button onClick={addStatusColumn} variant="outline" className="flex items-center gap-2" size="sm">
             <ListChecks className="h-4 w-4" />
-            Add Status Column
+            <span className="hidden sm:inline">Add Status Column</span>
+            <span className="sm:hidden">Status</span>
           </Button>
 
           {/* Save button */}
@@ -1192,9 +1197,15 @@ export default function SheetPage({ params }: { params: { id: string } }) {
             disabled={pendingChanges.length === 0 || isSaving}
             variant={pendingChanges.length > 0 ? "default" : "outline"}
             className="flex items-center gap-2"
+            size="sm"
           >
             <Save className="h-4 w-4" />
-            {isSaving ? "Saving..." : `Save${pendingChanges.length > 0 ? ` (${pendingChanges.length})` : ""}`}
+            <span className="hidden sm:inline">
+              {isSaving ? "Saving..." : `Save${pendingChanges.length > 0 ? ` (${pendingChanges.length})` : ""}`}
+            </span>
+            <span className="sm:hidden">
+              {isSaving ? "..." : pendingChanges.length > 0 ? pendingChanges.length : "Save"}
+            </span>
           </Button>
 
           {/* Auto-save toggle */}
@@ -1204,28 +1215,32 @@ export default function SheetPage({ params }: { params: { id: string } }) {
             className={`flex items-center gap-2 ${
               autoSave ? "bg-green-50 text-green-800" : "bg-yellow-50 text-yellow-800"
             }`}
+            size="sm"
           >
-            {autoSave ? "Auto-save: On" : "Auto-save: Off"}
+            <span className="hidden sm:inline">{autoSave ? "Auto-save: On" : "Auto-save: Off"}</span>
+            <span className="sm:hidden">{autoSave ? "Auto" : "Manual"}</span>
           </Button>
         </div>
 
-        <div className="flex gap-2 flex-wrap">
-          <Button onClick={exportToExcel} variant="outline" className="flex items-center gap-2">
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={exportToExcel} variant="outline" className="flex items-center gap-2" size="sm">
             <FileDown className="h-4 w-4" />
-            Export to Excel
+            <span className="hidden sm:inline">Export to Excel</span>
+            <span className="sm:hidden">Export</span>
           </Button>
-          <Button variant="outline" className="flex items-center gap-2" asChild>
+          <Button variant="outline" className="flex items-center gap-2" asChild size="sm">
             <label>
               <FileUp className="h-4 w-4" />
-              Import Excel
+              <span className="hidden sm:inline">Import Excel</span>
+              <span className="sm:hidden">Import</span>
               <input type="file" accept=".xlsx, .xls" className="hidden" onChange={importFromExcel} />
             </label>
           </Button>
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-4 mb-4 items-center">
-        <div className="relative flex-1 min-w-[200px]">
+      <div className="flex flex-col sm:flex-row gap-4 mb-4 items-stretch sm:items-center">
+        <div className="relative flex-1 min-w-0">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
           <Input
             placeholder="Search across all fields..."
@@ -1235,16 +1250,19 @@ export default function SheetPage({ params }: { params: { id: string } }) {
           />
         </div>
         {columnFilters.length > 0 && (
-          <Button variant="outline" onClick={clearAllFilters} size="sm">
-            Clear All Filters ({columnFilters.length})
+          <Button variant="outline" onClick={clearAllFilters} size="sm" className="w-full sm:w-auto">
+            <span className="hidden sm:inline">Clear All Filters ({columnFilters.length})</span>
+            <span className="sm:hidden">Clear ({columnFilters.length})</span>
           </Button>
         )}
       </div>
 
       {pendingChanges.length > 0 && !autoSave && (
-        <div className="mb-4 p-2 bg-yellow-50 border border-yellow-200 rounded-md text-sm flex items-center justify-between text-yellow-800">
-          <span>You have {pendingChanges.length} unsaved changes. Click the Save button to save your changes.</span>
-          <Button size="sm" onClick={saveChanges} disabled={isSaving}>
+        <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-md text-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-yellow-800">
+          <span className="text-xs sm:text-sm">
+            You have {pendingChanges.length} unsaved changes. Click the Save button to save your changes.
+          </span>
+          <Button size="sm" onClick={saveChanges} disabled={isSaving} className="w-full sm:w-auto">
             {isSaving ? "Saving..." : "Save Now"}
           </Button>
         </div>
@@ -1266,7 +1284,7 @@ export default function SheetPage({ params }: { params: { id: string } }) {
       </div>
 
       {(globalSearchTerm || columnFilters.length > 0) && filteredRows.length === 0 && (
-        <div className="text-center py-8 text-muted-foreground">
+        <div className="text-center py-6 sm:py-8 text-muted-foreground">
           No results found for the current search and filters
         </div>
       )}

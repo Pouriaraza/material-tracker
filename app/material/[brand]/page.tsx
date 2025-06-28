@@ -1,21 +1,20 @@
 "use client"
 
-import type React from "react"
-
 import { useState, useEffect } from "react"
 import { useParams, useRouter } from "next/navigation"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { useToast } from "@/hooks/use-toast"
 import { Button } from "@/components/ui/button"
-import { Package, RefreshCw, AlertCircle, ChevronDown, ChevronUp, Trash2, Edit, Wrench } from "lucide-react"
-import { BackButton } from "@/components/ui/back-button"
+import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
+import { Loader2, Plus, Package, ArrowLeft } from "lucide-react"
 import { CategoryDialog } from "@/components/material/category-dialog"
 import { MaterialDialog } from "@/components/material/material-dialog"
 import { MaterialEditDialog } from "@/components/material/material-edit-dialog"
 import { MaterialDeleteDialog } from "@/components/material/material-delete-dialog"
 import { MaterialNotesDialog } from "@/components/material/material-notes-dialog"
-import { Badge } from "@/components/ui/badge"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { useToast } from "@/hooks/use-toast"
+import { CategoryEditDialog } from "@/components/material/category-edit-dialog"
+import { CategoryDeleteDialog } from "@/components/material/category-delete-dialog"
+import { SimpleCategoryActions } from "@/components/material/simple-category-actions"
 
 interface Category {
   id: string
@@ -63,570 +62,245 @@ export default function BrandMaterialPage() {
   const [notesDialogOpen, setNotesDialogOpen] = useState(false)
   const [editingMaterial, setEditingMaterial] = useState<Material | null>(null)
   const [deletingMaterial, setDeletingMaterial] = useState<Material | null>(null)
-  const [setupError, setSetupError] = useState<string | null>(null)
-  const [isSettingUp, setIsSettingUp] = useState(false)
-  const [isRefreshing, setIsRefreshing] = useState(false)
-  const [isFixingBrand, setIsFixingBrand] = useState(false)
-  const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set())
-  const [brandColumnMissing, setBrandColumnMissing] = useState(false)
+  const [editingCategory, setEditingCategory] = useState<Category | null>(null)
+  const [deletingCategory, setDeletingCategory] = useState<Category | null>(null)
+  const [categoryDialogOpen, setCategoryDialogOpen] = useState(false)
+  const [materialDialogOpen, setMaterialDialogOpen] = useState(false)
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>("")
 
   useEffect(() => {
-    fetchBrand()
-    fetchCategories()
+    fetchBrandData()
   }, [brandSlug])
 
-  const fetchBrand = async () => {
-    try {
-      const response = await fetch("/api/material/brands")
-      const data = await response.json()
-
-      if (data.brands) {
-        const foundBrand = data.brands.find((b: Brand) => b.slug === brandSlug)
-        setBrand(foundBrand || null)
-      }
-    } catch (error) {
-      console.error("Error fetching brand:", error)
-    }
-  }
-
-  const addBrandColumn = async () => {
-    setIsFixingBrand(true)
-    try {
-      const response = await fetch("/api/material/add-brand-column", {
-        method: "POST",
-      })
-
-      if (response.ok) {
-        toast({
-          title: "Brand column added",
-          description: "Brand column has been added to materials table",
-        })
-        setBrandColumnMissing(false)
-        await refreshSchema()
-        await fetchCategories()
-      } else {
-        const data = await response.json()
-        toast({
-          title: "Failed to add brand column",
-          description: data.error || "Failed to add brand column to materials table",
-          variant: "destructive",
-        })
-      }
-    } catch (error) {
-      console.error("Error adding brand column:", error)
-      toast({
-        title: "Error",
-        description: "Failed to add brand column",
-        variant: "destructive",
-      })
-    } finally {
-      setIsFixingBrand(false)
-    }
-  }
-
-  const refreshSchema = async () => {
-    setIsRefreshing(true)
-    try {
-      const response = await fetch("/api/material/refresh-schema", {
-        method: "POST",
-      })
-
-      if (response.ok) {
-        toast({
-          title: "Schema refreshed",
-          description: "Database schema has been refreshed successfully",
-        })
-        await fetchCategories()
-      } else {
-        toast({
-          title: "Schema refresh failed",
-          description: "Failed to refresh database schema",
-          variant: "destructive",
-        })
-      }
-    } catch (error) {
-      console.error("Error refreshing schema:", error)
-      toast({
-        title: "Error",
-        description: "Failed to refresh schema",
-        variant: "destructive",
-      })
-    } finally {
-      setIsRefreshing(false)
-    }
-  }
-
-  const setupTables = async () => {
-    setIsSettingUp(true)
-    setSetupError(null)
-
-    try {
-      const response = await fetch("/api/setup-material-tables", {
-        method: "POST",
-      })
-
-      const data = await response.json()
-
-      if (response.ok) {
-        setSetupError(null)
-        toast({
-          title: "Tables created",
-          description: "Material tables have been created successfully",
-        })
-        await new Promise((resolve) => setTimeout(resolve, 1000))
-        await fetchCategories()
-      } else {
-        setSetupError(data.error || "Failed to setup tables")
-        toast({
-          title: "Setup failed",
-          description: data.error || "Failed to setup material tables",
-          variant: "destructive",
-        })
-      }
-    } catch (error) {
-      console.error("Error setting up tables:", error)
-      setSetupError("Failed to setup tables")
-      toast({
-        title: "Error",
-        description: "Failed to setup material tables",
-        variant: "destructive",
-      })
-    } finally {
-      setIsSettingUp(false)
-    }
-  }
-
-  const fetchCategories = async () => {
+  const fetchBrandData = async () => {
     try {
       setLoading(true)
-      const response = await fetch(`/api/material/categories?brand=${brandSlug}`)
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
+      // Fetch brand info
+      const brandResponse = await fetch(`/api/material/brands/${brandSlug}`)
+      if (!brandResponse.ok) {
+        throw new Error("Failed to fetch brand")
       }
+      const brandData = await brandResponse.json()
+      setBrand(brandData)
 
-      const data = await response.json()
+      // Fetch categories for this brand
+      const categoriesResponse = await fetch(`/api/material/categories?brand=${brandSlug}`)
+      if (!categoriesResponse.ok) {
+        throw new Error("Failed to fetch categories")
+      }
+      const categoriesData = await categoriesResponse.json()
+      setCategories(categoriesData)
 
-      if (response.ok) {
-        setCategories(data.categories || [])
-        setSetupError(null)
-
-        // Clear existing materials
-        setMaterials({})
-
-        // Fetch materials for each category
-        for (const category of data.categories || []) {
-          fetchMaterials(category.id)
-        }
-      } else {
-        if (data.tableExists === false || data.error?.includes("does not exist")) {
-          setSetupError("Database tables need to be created")
-        } else {
-          setSetupError(data.error || "Failed to fetch categories")
+      // Fetch materials for each category
+      const materialsData: { [categoryId: string]: Material[] } = {}
+      for (const category of categoriesData) {
+        const materialsResponse = await fetch(`/api/material/items?category=${category.id}`)
+        if (materialsResponse.ok) {
+          const categoryMaterials = await materialsResponse.json()
+          materialsData[category.id] = categoryMaterials
         }
       }
+      setMaterials(materialsData)
     } catch (error) {
-      console.error("Error fetching categories:", error)
-      setSetupError("Failed to connect to database")
+      console.error("Error fetching brand data:", error)
+      toast({
+        title: "Error",
+        description: "Failed to load brand data",
+        variant: "destructive",
+      })
     } finally {
       setLoading(false)
     }
   }
 
-  const fetchMaterials = async (categoryId: string) => {
-    try {
-      console.log(`Fetching materials for category ${categoryId} and brand ${brandSlug}`)
-      const response = await fetch(`/api/material/items?category_id=${categoryId}&brand=${brandSlug}`)
-
-      if (!response.ok) {
-        console.error(`HTTP error! status: ${response.status}`)
-        return
-      }
-
-      const contentType = response.headers.get("content-type")
-      if (!contentType || !contentType.includes("application/json")) {
-        console.error("Response is not JSON:", await response.text())
-        return
-      }
-
-      const data = await response.json()
-
-      if (data.tableExists === false) {
-        setSetupError("Database tables need to be created")
-        return
-      }
-
-      // Check if there's a brand column error
-      if (data.error && data.error.includes("column materials.brand does not exist")) {
-        setBrandColumnMissing(true)
-        return
-      }
-
-      console.log(`Received ${data.materials?.length || 0} materials for category ${categoryId}`)
-
-      setMaterials((prev) => ({
-        ...prev,
-        [categoryId]: data.materials || [],
-      }))
-    } catch (error) {
-      console.error("Error fetching materials:", error)
-
-      // Check if it's a brand column error
-      if (error instanceof Error && error.message.includes("column materials.brand does not exist")) {
-        setBrandColumnMissing(true)
-      }
-    }
-  }
-
-  const handleMaterialClick = (material: Material, e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest("button")) {
-      return
-    }
-    setSelectedMaterial(material.id)
+  const handleMaterialClick = (materialId: string) => {
+    setSelectedMaterial(materialId)
     setNotesDialogOpen(true)
   }
 
-  const toggleCategoryCollapse = (categoryId: string) => {
-    setCollapsedCategories((prev) => {
-      const newSet = new Set(prev)
-      if (newSet.has(categoryId)) {
-        newSet.delete(categoryId)
-      } else {
-        newSet.add(categoryId)
-      }
-      return newSet
-    })
+  const handleEditMaterial = (material: Material) => {
+    setEditingMaterial(material)
   }
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "available":
-        return "bg-green-100 text-green-800"
-      case "out_of_stock":
-        return "bg-red-100 text-red-800"
-      case "reserved":
-        return "bg-yellow-100 text-yellow-800"
-      case "discontinued":
-        return "bg-gray-100 text-gray-800"
-      default:
-        return "bg-gray-100 text-gray-800"
-    }
+  const handleDeleteMaterial = (material: Material) => {
+    setDeletingMaterial(material)
   }
 
-  const handleMaterialCreated = (categoryId?: string) => {
-    if (categoryId) {
-      // Refresh just this category's materials
-      fetchMaterials(categoryId)
-    } else {
-      // Refresh all categories' materials
-      categories.forEach((category) => fetchMaterials(category.id))
-    }
+  const handleEditCategory = (category: Category) => {
+    setEditingCategory(category)
+  }
 
-    toast({
-      title: "Material added",
-      description: "New material has been added successfully",
-    })
+  const handleDeleteCategory = (category: Category) => {
+    setDeletingCategory(category)
+  }
+
+  const handleAddMaterial = (categoryId: string) => {
+    setSelectedCategoryId(categoryId)
+    setMaterialDialogOpen(true)
+  }
+
+  const refreshData = () => {
+    fetchBrandData()
   }
 
   if (loading) {
     return (
-      <div className="container mx-auto py-6">
-        <div className="flex items-center justify-center py-8">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-        </div>
+      <div className="flex items-center justify-center min-h-screen">
+        <Loader2 className="h-8 w-8 animate-spin" />
       </div>
     )
   }
 
   if (!brand) {
     return (
-      <div className="container mx-auto py-6">
-        <div className="flex items-center gap-4 mb-6">
-          <BackButton />
-          <div>
-            <h1 className="text-3xl font-bold">Brand Not Found</h1>
-            <p className="text-muted-foreground mt-1">The requested brand does not exist</p>
-          </div>
+      <div className="container mx-auto p-6">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold mb-4">Brand Not Found</h1>
+          <Button onClick={() => router.push("/material")}>
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back to Materials
+          </Button>
         </div>
-      </div>
-    )
-  }
-
-  if (brandColumnMissing) {
-    return (
-      <div className="container mx-auto py-6">
-        <div className="flex items-center gap-4 mb-6">
-          <BackButton />
-          <div>
-            <h1 className="text-3xl font-bold flex items-center">
-              <Package className="mr-3 h-8 w-8" style={{ color: brand.color }} />
-              {brand.name} Materials
-            </h1>
-            <p className="text-muted-foreground mt-1">Manage {brand.name} equipment and materials inventory</p>
-          </div>
-        </div>
-
-        <Alert className="mb-6">
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="font-medium">Database Update Required</p>
-                <p className="text-sm text-muted-foreground mt-1">
-                  The materials table is missing the brand column. Click the button to add it.
-                </p>
-              </div>
-              <div className="flex gap-2">
-                <Button
-                  onClick={addBrandColumn}
-                  disabled={isFixingBrand}
-                  size="sm"
-                  style={{ backgroundColor: brand.color, borderColor: brand.color }}
-                >
-                  <Wrench className={`h-4 w-4 mr-2 ${isFixingBrand ? "animate-spin" : ""}`} />
-                  {isFixingBrand ? "Adding Column..." : "Add Brand Column"}
-                </Button>
-              </div>
-            </div>
-          </AlertDescription>
-        </Alert>
-
-        <Card>
-          <CardContent className="text-center py-8">
-            <Package className="mx-auto h-12 w-12 mb-4 text-muted-foreground" />
-            <p className="text-muted-foreground">Material management system needs an update</p>
-            <p className="text-sm text-muted-foreground">Click the "Add Brand Column" button to update the database</p>
-          </CardContent>
-        </Card>
-      </div>
-    )
-  }
-
-  if (setupError) {
-    return (
-      <div className="container mx-auto py-6">
-        <div className="flex items-center gap-4 mb-6">
-          <BackButton />
-          <div>
-            <h1 className="text-3xl font-bold flex items-center">
-              <Package className="mr-3 h-8 w-8" style={{ color: brand.color }} />
-              {brand.name} Materials
-            </h1>
-            <p className="text-muted-foreground mt-1">Manage {brand.name} equipment and materials inventory</p>
-          </div>
-        </div>
-
-        <Alert className="mb-6">
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="font-medium">Database Setup Required</p>
-                <p className="text-sm text-muted-foreground mt-1">{setupError}</p>
-              </div>
-              <div className="flex gap-2">
-                <Button
-                  onClick={refreshSchema}
-                  disabled={isRefreshing}
-                  size="sm"
-                  variant="outline"
-                  style={{ borderColor: brand.color, color: brand.color }}
-                >
-                  <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? "animate-spin" : ""}`} />
-                  {isRefreshing ? "Refreshing..." : "Refresh Schema"}
-                </Button>
-                <Button
-                  onClick={setupTables}
-                  disabled={isSettingUp}
-                  size="sm"
-                  style={{ backgroundColor: brand.color, borderColor: brand.color }}
-                >
-                  {isSettingUp ? "Setting up..." : "Setup Database"}
-                </Button>
-              </div>
-            </div>
-          </AlertDescription>
-        </Alert>
-
-        <Card>
-          <CardContent className="text-center py-8">
-            <Package className="mx-auto h-12 w-12 mb-4 text-muted-foreground" />
-            <p className="text-muted-foreground">Material management system is not ready</p>
-            <p className="text-sm text-muted-foreground">Try refreshing the schema or setting up the database</p>
-          </CardContent>
-        </Card>
       </div>
     )
   }
 
   return (
-    <div className="container mx-auto py-6">
-      <div className="flex items-center gap-4 mb-6">
-        <BackButton />
-        <div className="flex-1">
-          <h1 className="text-3xl font-bold flex items-center">
-            <Package className="mr-3 h-8 w-8" style={{ color: brand.color }} />
-            {brand.name} Materials
-          </h1>
-          <p className="text-muted-foreground mt-1">Manage {brand.name} equipment and materials inventory</p>
+    <div className="container mx-auto p-6">
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-4">
+          <Button variant="outline" onClick={() => router.push("/material")}>
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back
+          </Button>
+          <div>
+            <h1 className="text-3xl font-bold">{brand.name}</h1>
+            <p className="text-muted-foreground">{brand.description}</p>
+          </div>
         </div>
-        <Button
-          onClick={refreshSchema}
-          disabled={isRefreshing}
-          size="sm"
-          variant="outline"
-          style={{ borderColor: brand.color, color: brand.color }}
-        >
-          <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? "animate-spin" : ""}`} />
-          {isRefreshing ? "Refreshing..." : "Refresh Schema"}
+        <Button onClick={() => setCategoryDialogOpen(true)}>
+          <Plus className="h-4 w-4 mr-2" />
+          Add Category
         </Button>
-        <CategoryDialog brand={brandSlug} brandColor={brand.color} onCategoryCreated={fetchCategories} />
       </div>
 
-      <div className="grid gap-4">
-        {categories.length === 0 ? (
-          <Card>
-            <CardContent className="text-center py-8">
-              <Package className="mx-auto h-12 w-12 mb-4 text-muted-foreground" />
-              <p className="text-muted-foreground">No categories created yet</p>
-              <p className="text-sm text-muted-foreground">Create your first category to start organizing materials</p>
+      <div className="grid gap-6">
+        {categories.map((category) => (
+          <Card key={category.id}>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Badge style={{ backgroundColor: category.color }} className="text-white">
+                    {category.name}
+                  </Badge>
+                  <CardDescription>{category.description}</CardDescription>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button size="sm" onClick={() => handleAddMaterial(category.id)}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add Material
+                  </Button>
+                  <SimpleCategoryActions
+                    category={category}
+                    onEdit={handleEditCategory}
+                    onDelete={handleDeleteCategory}
+                  />
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {materials[category.id]?.length > 0 ? (
+                <div className="grid gap-3">
+                  {materials[category.id].map((material) => (
+                    <div
+                      key={material.id}
+                      className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 cursor-pointer"
+                      onClick={() => handleMaterialClick(material.id)}
+                    >
+                      <div className="flex items-center gap-3">
+                        <Package className="h-4 w-4 text-muted-foreground" />
+                        <div>
+                          <div className="font-medium">{material.name}</div>
+                          <div className="text-sm text-muted-foreground">
+                            {material.part_number} • {material.quantity} {material.unit}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline">{material.status}</Badge>
+                        <div className="flex gap-1">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleEditMaterial(material)
+                            }}
+                          >
+                            Edit
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleDeleteMaterial(material)
+                            }}
+                          >
+                            Delete
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Package className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p>No materials in this category yet</p>
+                  <Button
+                    variant="outline"
+                    className="mt-2 bg-transparent"
+                    onClick={() => handleAddMaterial(category.id)}
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add First Material
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </Card>
-        ) : (
-          categories.map((category) => {
-            const isCollapsed = collapsedCategories.has(category.id)
-            const categoryMaterials = materials[category.id] || []
+        ))}
 
-            return (
-              <Card key={category.id} className="hover:shadow-lg transition-shadow">
-                <CardHeader
-                  className="pb-3"
-                  style={{ backgroundColor: brand.color + "10", borderBottom: `2px solid ${brand.color}` }}
-                >
-                  <div className="flex items-center justify-between">
-                    <div
-                      className="flex items-center gap-3 cursor-pointer flex-1"
-                      onClick={() => toggleCategoryCollapse(category.id)}
-                    >
-                      <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: category.color }} />
-                        <CardTitle className="text-lg">{category.name}</CardTitle>
-                        <Badge
-                          variant="secondary"
-                          className="text-xs"
-                          style={{
-                            backgroundColor: brand.color + "20",
-                            color: brand.color,
-                            borderColor: brand.color + "40",
-                          }}
-                        >
-                          {categoryMaterials.length}
-                        </Badge>
-                      </div>
-                      {isCollapsed ? (
-                        <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                      ) : (
-                        <ChevronUp className="h-4 w-4 text-muted-foreground" />
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <MaterialDialog
-                        brand={brandSlug}
-                        brandColor={brand.color}
-                        categoryId={category.id}
-                        categoryName={category.name}
-                        onMaterialCreated={() => handleMaterialCreated(category.id)}
-                      />
-                    </div>
-                  </div>
-                  {category.description && !isCollapsed && (
-                    <CardDescription className="mt-1">{category.description}</CardDescription>
-                  )}
-                </CardHeader>
-                {!isCollapsed && (
-                  <CardContent className="pt-4">
-                    {categoryMaterials.length > 0 ? (
-                      <div className="grid gap-3">
-                        {categoryMaterials.map((material) => (
-                          <div
-                            key={material.id}
-                            className="flex items-center justify-between p-3 border rounded-lg hover:bg-accent cursor-pointer transition-colors"
-                            onClick={(e) => handleMaterialClick(material, e)}
-                          >
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2 mb-1">
-                                <h4 className="font-medium">{material.name}</h4>
-                                <Badge className={getStatusColor(material.status)} variant="secondary">
-                                  {material.status.replace("_", " ")}
-                                </Badge>
-                              </div>
-                              {material.part_number && (
-                                <p className="text-sm text-muted-foreground">Part: {material.part_number}</p>
-                              )}
-                              <p className="text-sm text-muted-foreground">
-                                Qty: {material.quantity} {material.unit}
-                                {material.location && ` • Location: ${material.location}`}
-                              </p>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  setEditingMaterial(material)
-                                }}
-                                className="hover:bg-opacity-10"
-                                style={
-                                  {
-                                    "--hover-bg": brand.color + "10",
-                                  } as React.CSSProperties
-                                }
-                              >
-                                <Edit className="h-4 w-4" style={{ color: brand.color }} />
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  setDeletingMaterial(material)
-                                }}
-                              >
-                                <Trash2 className="h-4 w-4 text-red-600" />
-                              </Button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="text-center py-6 text-muted-foreground">
-                        <Package className="mx-auto h-8 w-8 mb-2" />
-                        <p>No materials in this category</p>
-                        <p className="text-sm">Add materials to get started</p>
-                      </div>
-                    )}
-                  </CardContent>
-                )}
-              </Card>
-            )
-          })
+        {categories.length === 0 && (
+          <Card>
+            <CardContent className="text-center py-12">
+              <Package className="h-16 w-16 mx-auto mb-4 opacity-50" />
+              <h3 className="text-lg font-semibold mb-2">No Categories Yet</h3>
+              <p className="text-muted-foreground mb-4">Create your first category to start organizing materials</p>
+              <Button onClick={() => setCategoryDialogOpen(true)}>
+                <Plus className="h-4 w-4 mr-2" />
+                Create Category
+              </Button>
+            </CardContent>
+          </Card>
         )}
       </div>
 
-      <MaterialNotesDialog
-        materialId={selectedMaterial}
-        open={notesDialogOpen}
-        onOpenChange={setNotesDialogOpen}
-        onMaterialUpdated={() => {
-          if (selectedMaterial) {
-            Object.keys(materials).forEach((categoryId) => {
-              if (materials[categoryId].some((m) => m.id === selectedMaterial)) {
-                fetchMaterials(categoryId)
-              }
-            })
-          }
-        }}
+      {/* Dialogs */}
+      <CategoryDialog
+        open={categoryDialogOpen}
+        onOpenChange={setCategoryDialogOpen}
+        brandSlug={brandSlug}
+        onSuccess={refreshData}
+      />
+
+      <MaterialDialog
+        open={materialDialogOpen}
+        onOpenChange={setMaterialDialogOpen}
+        categoryId={selectedCategoryId}
+        onSuccess={refreshData}
       />
 
       {editingMaterial && (
@@ -634,13 +308,7 @@ export default function BrandMaterialPage() {
           material={editingMaterial}
           open={!!editingMaterial}
           onOpenChange={(open) => !open && setEditingMaterial(null)}
-          onMaterialUpdated={() => {
-            Object.keys(materials).forEach((categoryId) => {
-              if (materials[categoryId].some((m) => m.id === editingMaterial.id)) {
-                fetchMaterials(categoryId)
-              }
-            })
-          }}
+          onSuccess={refreshData}
         />
       )}
 
@@ -649,14 +317,30 @@ export default function BrandMaterialPage() {
           material={deletingMaterial}
           open={!!deletingMaterial}
           onOpenChange={(open) => !open && setDeletingMaterial(null)}
-          onMaterialDeleted={() => {
-            Object.keys(materials).forEach((categoryId) => {
-              if (materials[categoryId].some((m) => m.id === deletingMaterial.id)) {
-                fetchMaterials(categoryId)
-              }
-            })
-          }}
+          onSuccess={refreshData}
         />
+      )}
+
+      {editingCategory && (
+        <CategoryEditDialog
+          category={editingCategory}
+          open={!!editingCategory}
+          onOpenChange={(open) => !open && setEditingCategory(null)}
+          onSuccess={refreshData}
+        />
+      )}
+
+      {deletingCategory && (
+        <CategoryDeleteDialog
+          category={deletingCategory}
+          open={!!deletingCategory}
+          onOpenChange={(open) => !open && setDeletingCategory(null)}
+          onSuccess={refreshData}
+        />
+      )}
+
+      {selectedMaterial && (
+        <MaterialNotesDialog materialId={selectedMaterial} open={notesDialogOpen} onOpenChange={setNotesDialogOpen} />
       )}
     </div>
   )
