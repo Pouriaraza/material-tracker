@@ -2,226 +2,435 @@
 
 import { useState, useEffect } from "react"
 import { useParams, useRouter } from "next/navigation"
-import { useToast } from "@/hooks/use-toast"
+import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
-import { Loader2, Plus, Package, ArrowLeft, Edit, Trash2, FileText } from "lucide-react"
-import { CategoryDialog } from "@/components/material/category-dialog"
+import { Loader2, Plus, Search, ArrowLeft, Package, Tag } from "lucide-react"
 import { MaterialDialog } from "@/components/material/material-dialog"
 import { MaterialEditDialog } from "@/components/material/material-edit-dialog"
 import { MaterialDeleteDialog } from "@/components/material/material-delete-dialog"
-import { MaterialNotesDialog } from "@/components/material/material-notes-dialog"
+import { CategoryDialog } from "@/components/material/category-dialog"
 import { CategoryEditDialog } from "@/components/material/category-edit-dialog"
 import { CategoryDeleteDialog } from "@/components/material/category-delete-dialog"
-import { SimpleCategoryActions } from "@/components/material/simple-category-actions"
+import { MaterialNotesDialog } from "@/components/material/material-notes-dialog"
+import { toast } from "sonner"
 
 interface Category {
   id: string
   name: string
-  description: string
-  color: string
+  description?: string
+  brand: string
   created_at: string
 }
 
 interface Material {
   id: string
   name: string
-  description: string
-  notes: string
-  part_number: string
-  quantity: number
-  unit: string
-  location: string
-  status: string
-  material_categories: {
-    name: string
-    color: string
-  }
+  description?: string
+  category_id: string
+  brand: string
+  part_number?: string
+  specifications?: string
+  notes?: string
+  created_at: string
+  category?: Category
 }
 
 interface Brand {
   id: string
   name: string
   slug: string
-  description: string
-  color: string
+  description?: string
 }
 
-export default function BrandMaterialPage() {
+export default function MaterialBrandPage() {
   const params = useParams()
   const router = useRouter()
   const brandSlug = params.brand as string
-  const { toast } = useToast()
+  const supabase = createClient()
 
   const [brand, setBrand] = useState<Brand | null>(null)
   const [categories, setCategories] = useState<Category[]>([])
-  const [materials, setMaterials] = useState<{ [categoryId: string]: Material[] }>({})
+  const [materials, setMaterials] = useState<Material[]>([])
   const [loading, setLoading] = useState(true)
-  const [selectedMaterial, setSelectedMaterial] = useState<string | null>(null)
-  const [notesDialogOpen, setNotesDialogOpen] = useState(false)
-  const [editingMaterial, setEditingMaterial] = useState<Material | null>(null)
-  const [deletingMaterial, setDeletingMaterial] = useState<Material | null>(null)
-  const [editingCategory, setEditingCategory] = useState<Category | null>(null)
-  const [deletingCategory, setDeletingCategory] = useState<Category | null>(null)
-  const [categoryDialogOpen, setCategoryDialogOpen] = useState(false)
+  const [searchTerm, setSearchTerm] = useState("")
+  const [selectedCategory, setSelectedCategory] = useState<string>("all")
+
+  // Dialog states
   const [materialDialogOpen, setMaterialDialogOpen] = useState(false)
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string>("")
+  const [materialEditDialog, setMaterialEditDialog] = useState<{ open: boolean; material: Material | null }>({
+    open: false,
+    material: null,
+  })
+  const [materialDeleteDialog, setMaterialDeleteDialog] = useState<{ open: boolean; material: Material | null }>({
+    open: false,
+    material: null,
+  })
+  const [materialNotesDialog, setMaterialNotesDialog] = useState<{ open: boolean; material: Material | null }>({
+    open: false,
+    material: null,
+  })
+  const [categoryDialogOpen, setCategoryDialogOpen] = useState(false)
+  const [categoryEditDialog, setCategoryEditDialog] = useState<{ open: boolean; category: Category | null }>({
+    open: false,
+    category: null,
+  })
+  const [categoryDeleteDialog, setCategoryDeleteDialog] = useState<{ open: boolean; category: Category | null }>({
+    open: false,
+    category: null,
+  })
+
+  // Mock data for preview environment
+  const mockBrand: Brand = {
+    id: "1",
+    name: brandSlug.charAt(0).toUpperCase() + brandSlug.slice(1),
+    slug: brandSlug,
+    description: `${brandSlug.charAt(0).toUpperCase() + brandSlug.slice(1)} telecommunications equipment and materials`,
+  }
+
+  const mockCategories: Category[] = [
+    {
+      id: "1",
+      name: "Antennas",
+      description: "Various antenna types and configurations",
+      brand: brandSlug,
+      created_at: new Date().toISOString(),
+    },
+    {
+      id: "2",
+      name: "Cables",
+      description: "Fiber optic and coaxial cables",
+      brand: brandSlug,
+      created_at: new Date().toISOString(),
+    },
+    {
+      id: "3",
+      name: "Base Station Equipment",
+      description: "Radio units and processing equipment",
+      brand: brandSlug,
+      created_at: new Date().toISOString(),
+    },
+  ]
+
+  const mockMaterials: Material[] = [
+    {
+      id: "1",
+      name: "AIR 3218 Antenna",
+      description: "Multi-band antenna for 5G networks",
+      category_id: "1",
+      brand: brandSlug,
+      part_number: "AIR3218-B25",
+      specifications: "Frequency: 1.7-2.7 GHz, Gain: 17.5 dBi",
+      notes: "Requires special mounting hardware",
+      created_at: new Date().toISOString(),
+      category: mockCategories[0],
+    },
+    {
+      id: "2",
+      name: "Fiber Optic Cable",
+      description: "Single-mode fiber optic cable",
+      category_id: "2",
+      brand: brandSlug,
+      part_number: "FOC-SM-24",
+      specifications: "24 core, OS2 standard",
+      notes: "Indoor/outdoor rated",
+      created_at: new Date().toISOString(),
+      category: mockCategories[1],
+    },
+    {
+      id: "3",
+      name: "Radio Unit 5G",
+      description: "5G NR radio unit",
+      category_id: "3",
+      brand: brandSlug,
+      part_number: "RU5G-2600",
+      specifications: "Band n7 (2600 MHz), 200W",
+      notes: "Requires cooling system",
+      created_at: new Date().toISOString(),
+      category: mockCategories[2],
+    },
+  ]
 
   useEffect(() => {
-    fetchBrandData()
+    loadData()
   }, [brandSlug])
 
-  const fetchBrandData = async () => {
+  const loadData = async () => {
+    setLoading(true)
     try {
-      setLoading(true)
+      // Check if we're in preview mode
+      const isPreview = typeof window !== "undefined" && window.location.hostname.includes("lite.vusercontent.net")
 
-      // Mock data for preview - replace with actual API calls
-      const mockBrand: Brand = {
-        id: "1",
-        name: brandSlug.charAt(0).toUpperCase() + brandSlug.slice(1),
-        slug: brandSlug,
-        description: `${brandSlug} telecommunications equipment and materials`,
-        color: "#3b82f6",
+      if (isPreview) {
+        // Use mock data for preview
+        setBrand(mockBrand)
+        setCategories(mockCategories)
+        setMaterials(mockMaterials)
+        setLoading(false)
+        return
       }
 
-      const mockCategories: Category[] = [
-        {
-          id: "1",
-          name: "Antennas",
-          description: "Various antenna types and configurations",
-          color: "#ef4444",
-          created_at: new Date().toISOString(),
-        },
-        {
-          id: "2",
-          name: "Cables",
-          description: "RF and power cables",
-          color: "#10b981",
-          created_at: new Date().toISOString(),
-        },
-        {
-          id: "3",
-          name: "Power Systems",
-          description: "Power supplies and backup systems",
-          color: "#f59e0b",
-          created_at: new Date().toISOString(),
-        },
-      ]
+      // Load brand
+      const { data: brandData, error: brandError } = await supabase
+        .from("material_brands")
+        .select("*")
+        .eq("slug", brandSlug)
+        .single()
 
-      const mockMaterials: { [categoryId: string]: Material[] } = {
-        "1": [
-          {
-            id: "1",
-            name: "Sector Antenna 65°",
-            description: "High-gain sector antenna with 65° beamwidth",
-            notes: "Suitable for urban deployments with high capacity requirements",
-            part_number: "ANT-SEC-65-001",
-            quantity: 25,
-            unit: "pcs",
-            location: "Warehouse A-1",
-            status: "Available",
-            material_categories: {
-              name: "Antennas",
-              color: "#ef4444",
-            },
-          },
-          {
-            id: "2",
-            name: "Omni Antenna 2.4GHz",
-            description: "Omnidirectional antenna for 2.4GHz band",
-            notes: "Good for small cell deployments",
-            part_number: "ANT-OMNI-24-002",
-            quantity: 50,
-            unit: "pcs",
-            location: "Warehouse A-2",
-            status: "Available",
-            material_categories: {
-              name: "Antennas",
-              color: "#ef4444",
-            },
-          },
-        ],
-        "2": [
-          {
-            id: "3",
-            name: 'RF Cable 7/8"',
-            description: "Low-loss RF cable for base station connections",
-            notes: "Weather-resistant outer jacket, suitable for outdoor installations",
-            part_number: "CBL-RF-78-100",
-            quantity: 500,
-            unit: "meters",
-            location: "Warehouse B-1",
-            status: "Available",
-            material_categories: {
-              name: "Cables",
-              color: "#10b981",
-            },
-          },
-        ],
-        "3": [
-          {
-            id: "4",
-            name: "DC Power Supply 48V",
-            description: "Rectifier system for telecom applications",
-            notes: "Includes battery backup capability and remote monitoring",
-            part_number: "PWR-DC-48V-50A",
-            quantity: 10,
-            unit: "units",
-            location: "Warehouse C-1",
-            status: "Available",
-            material_categories: {
-              name: "Power Systems",
-              color: "#f59e0b",
-            },
-          },
-        ],
+      if (brandError) {
+        console.error("Error loading brand:", brandError)
+        // Fallback to mock data
+        setBrand(mockBrand)
+      } else {
+        setBrand(brandData)
       }
 
+      // Load categories
+      const { data: categoriesData, error: categoriesError } = await supabase
+        .from("material_categories")
+        .select("*")
+        .eq("brand", brandSlug)
+        .order("name")
+
+      if (categoriesError) {
+        console.error("Error loading categories:", categoriesError)
+        setCategories(mockCategories)
+      } else {
+        setCategories(categoriesData || [])
+      }
+
+      // Load materials with categories
+      const { data: materialsData, error: materialsError } = await supabase
+        .from("materials")
+        .select(`
+          *,
+          category:material_categories(*)
+        `)
+        .eq("brand", brandSlug)
+        .order("name")
+
+      if (materialsError) {
+        console.error("Error loading materials:", materialsError)
+        setMaterials(mockMaterials)
+      } else {
+        setMaterials(materialsData || [])
+      }
+    } catch (error) {
+      console.error("Error loading data:", error)
+      // Fallback to mock data
       setBrand(mockBrand)
       setCategories(mockCategories)
       setMaterials(mockMaterials)
-    } catch (error) {
-      console.error("Error fetching brand data:", error)
-      toast({
-        title: "Error",
-        description: "Failed to load brand data",
-        variant: "destructive",
-      })
     } finally {
       setLoading(false)
     }
   }
 
-  const handleMaterialClick = (materialId: string) => {
-    setSelectedMaterial(materialId)
-    setNotesDialogOpen(true)
+  const handleMaterialCreate = async (materialData: any) => {
+    try {
+      const isPreview = typeof window !== "undefined" && window.location.hostname.includes("lite.vusercontent.net")
+
+      if (isPreview) {
+        // Mock creation for preview
+        const newMaterial: Material = {
+          id: Date.now().toString(),
+          ...materialData,
+          brand: brandSlug,
+          created_at: new Date().toISOString(),
+          category: categories.find((c) => c.id === materialData.category_id),
+        }
+        setMaterials((prev) => [...prev, newMaterial])
+        toast.success("Material created successfully")
+        return
+      }
+
+      const { data, error } = await supabase
+        .from("materials")
+        .insert([{ ...materialData, brand: brandSlug }])
+        .select(`
+          *,
+          category:material_categories(*)
+        `)
+        .single()
+
+      if (error) throw error
+
+      setMaterials((prev) => [...prev, data])
+      toast.success("Material created successfully")
+    } catch (error) {
+      console.error("Error creating material:", error)
+      toast.error("Failed to create material")
+    }
   }
 
-  const handleEditMaterial = (material: Material) => {
-    setEditingMaterial(material)
+  const handleMaterialUpdate = async (id: string, materialData: any) => {
+    try {
+      const isPreview = typeof window !== "undefined" && window.location.hostname.includes("lite.vusercontent.net")
+
+      if (isPreview) {
+        // Mock update for preview
+        setMaterials((prev) =>
+          prev.map((material) =>
+            material.id === id
+              ? {
+                  ...material,
+                  ...materialData,
+                  category: categories.find((c) => c.id === materialData.category_id),
+                }
+              : material,
+          ),
+        )
+        toast.success("Material updated successfully")
+        return
+      }
+
+      const { data, error } = await supabase
+        .from("materials")
+        .update(materialData)
+        .eq("id", id)
+        .select(`
+          *,
+          category:material_categories(*)
+        `)
+        .single()
+
+      if (error) throw error
+
+      setMaterials((prev) => prev.map((material) => (material.id === id ? data : material)))
+      toast.success("Material updated successfully")
+    } catch (error) {
+      console.error("Error updating material:", error)
+      toast.error("Failed to update material")
+    }
   }
 
-  const handleDeleteMaterial = (material: Material) => {
-    setDeletingMaterial(material)
+  const handleMaterialDelete = async (id: string) => {
+    try {
+      const isPreview = typeof window !== "undefined" && window.location.hostname.includes("lite.vusercontent.net")
+
+      if (isPreview) {
+        // Mock deletion for preview
+        setMaterials((prev) => prev.filter((material) => material.id !== id))
+        toast.success("Material deleted successfully")
+        return
+      }
+
+      const { error } = await supabase.from("materials").delete().eq("id", id)
+
+      if (error) throw error
+
+      setMaterials((prev) => prev.filter((material) => material.id !== id))
+      toast.success("Material deleted successfully")
+    } catch (error) {
+      console.error("Error deleting material:", error)
+      toast.error("Failed to delete material")
+    }
   }
 
-  const handleEditCategory = (category: Category) => {
-    setEditingCategory(category)
+  const handleCategoryCreate = async (categoryData: any) => {
+    try {
+      const isPreview = typeof window !== "undefined" && window.location.hostname.includes("lite.vusercontent.net")
+
+      if (isPreview) {
+        // Mock creation for preview
+        const newCategory: Category = {
+          id: Date.now().toString(),
+          ...categoryData,
+          brand: brandSlug,
+          created_at: new Date().toISOString(),
+        }
+        setCategories((prev) => [...prev, newCategory])
+        toast.success("Category created successfully")
+        return
+      }
+
+      const { data, error } = await supabase
+        .from("material_categories")
+        .insert([{ ...categoryData, brand: brandSlug }])
+        .select()
+        .single()
+
+      if (error) throw error
+
+      setCategories((prev) => [...prev, data])
+      toast.success("Category created successfully")
+    } catch (error) {
+      console.error("Error creating category:", error)
+      toast.error("Failed to create category")
+    }
   }
 
-  const handleDeleteCategory = (category: Category) => {
-    setDeletingCategory(category)
+  const handleCategoryUpdate = async (id: string, categoryData: any) => {
+    try {
+      const isPreview = typeof window !== "undefined" && window.location.hostname.includes("lite.vusercontent.net")
+
+      if (isPreview) {
+        // Mock update for preview
+        setCategories((prev) =>
+          prev.map((category) => (category.id === id ? { ...category, ...categoryData } : category)),
+        )
+        toast.success("Category updated successfully")
+        return
+      }
+
+      const { data, error } = await supabase
+        .from("material_categories")
+        .update(categoryData)
+        .eq("id", id)
+        .select()
+        .single()
+
+      if (error) throw error
+
+      setCategories((prev) => prev.map((category) => (category.id === id ? data : category)))
+      toast.success("Category updated successfully")
+    } catch (error) {
+      console.error("Error updating category:", error)
+      toast.error("Failed to update category")
+    }
   }
 
-  const handleAddMaterial = (categoryId: string) => {
-    setSelectedCategoryId(categoryId)
-    setMaterialDialogOpen(true)
+  const handleCategoryDelete = async (id: string) => {
+    try {
+      const isPreview = typeof window !== "undefined" && window.location.hostname.includes("lite.vusercontent.net")
+
+      if (isPreview) {
+        // Mock deletion for preview
+        setCategories((prev) => prev.filter((category) => category.id !== id))
+        toast.success("Category deleted successfully")
+        return
+      }
+
+      const { error } = await supabase.from("material_categories").delete().eq("id", id)
+
+      if (error) throw error
+
+      setCategories((prev) => prev.filter((category) => category.id !== id))
+      toast.success("Category deleted successfully")
+    } catch (error) {
+      console.error("Error deleting category:", error)
+      toast.error("Failed to delete category")
+    }
   }
 
-  const refreshData = () => {
-    fetchBrandData()
-  }
+  const filteredMaterials = materials.filter((material) => {
+    const matchesSearch =
+      material.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      material.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      material.part_number?.toLowerCase().includes(searchTerm.toLowerCase())
+
+    const matchesCategory = selectedCategory === "all" || material.category_id === selectedCategory
+
+    return matchesSearch && matchesCategory
+  })
+
+  const materialsByCategory = categories.map((category) => ({
+    category,
+    materials: filteredMaterials.filter((material) => material.category_id === category.id),
+  }))
 
   if (loading) {
     return (
@@ -231,208 +440,259 @@ export default function BrandMaterialPage() {
     )
   }
 
-  if (!brand) {
-    return (
-      <div className="container mx-auto p-6">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold mb-4">Brand Not Found</h1>
-          <Button onClick={() => router.push("/material")}>
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Materials
-          </Button>
-        </div>
-      </div>
-    )
-  }
-
   return (
-    <div className="container mx-auto p-6">
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-4">
-          <Button variant="outline" onClick={() => router.push("/material")}>
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back
-          </Button>
-          <div>
-            <h1 className="text-3xl font-bold">{brand.name}</h1>
-            <p className="text-muted-foreground">{brand.description}</p>
-          </div>
-        </div>
-        <Button onClick={() => setCategoryDialogOpen(true)}>
-          <Plus className="h-4 w-4 mr-2" />
-          Add Category
+    <div className="container mx-auto py-6 space-y-6">
+      {/* Header */}
+      <div className="flex items-center gap-4">
+        <Button variant="ghost" size="sm" onClick={() => router.back()}>
+          <ArrowLeft className="h-4 w-4 mr-2" />
+          Back
         </Button>
+        <div>
+          <h1 className="text-3xl font-bold">{brand?.name} Materials</h1>
+          <p className="text-muted-foreground">{brand?.description}</p>
+        </div>
       </div>
 
-      <div className="grid gap-6">
-        {categories.map((category) => (
-          <Card key={category.id}>
-            <CardHeader>
+      {/* Search and Filters */}
+      <div className="flex flex-col sm:flex-row gap-4">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search materials..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="pl-10"
+          />
+        </div>
+        <div className="flex gap-2">
+          <Button onClick={() => setCategoryDialogOpen(true)}>
+            <Plus className="h-4 w-4 mr-2" />
+            Add Category
+          </Button>
+          <Button onClick={() => setMaterialDialogOpen(true)}>
+            <Plus className="h-4 w-4 mr-2" />
+            Add Material
+          </Button>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <Tabs value={selectedCategory} onValueChange={setSelectedCategory}>
+        <TabsList className="grid w-full grid-cols-2 lg:grid-cols-4">
+          <TabsTrigger value="all">All Materials</TabsTrigger>
+          {categories.slice(0, 3).map((category) => (
+            <TabsTrigger key={category.id} value={category.id}>
+              {category.name}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+
+        <TabsContent value="all" className="space-y-6">
+          {materialsByCategory.map(({ category, materials: categoryMaterials }) => (
+            <div key={category.id} className="space-y-4">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <Badge style={{ backgroundColor: category.color }} className="text-white">
-                    {category.name}
-                  </Badge>
-                  <CardDescription>{category.description}</CardDescription>
-                </div>
                 <div className="flex items-center gap-2">
-                  <Button size="sm" onClick={() => handleAddMaterial(category.id)}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add Material
+                  <Tag className="h-5 w-5" />
+                  <h2 className="text-xl font-semibold">{category.name}</h2>
+                  <Badge variant="secondary">{categoryMaterials.length}</Badge>
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" onClick={() => setCategoryEditDialog({ open: true, category })}>
+                    Edit
                   </Button>
-                  <SimpleCategoryActions
-                    category={category}
-                    onEdit={handleEditCategory}
-                    onDelete={handleDeleteCategory}
-                  />
+                  <Button variant="outline" size="sm" onClick={() => setCategoryDeleteDialog({ open: true, category })}>
+                    Delete
+                  </Button>
                 </div>
               </div>
-            </CardHeader>
-            <CardContent>
-              {materials[category.id]?.length > 0 ? (
-                <div className="grid gap-3">
-                  {materials[category.id].map((material) => (
-                    <div
-                      key={material.id}
-                      className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 cursor-pointer"
-                      onClick={() => handleMaterialClick(material.id)}
-                    >
-                      <div className="flex items-center gap-3">
-                        <Package className="h-4 w-4 text-muted-foreground" />
-                        <div>
-                          <div className="font-medium">{material.name}</div>
-                          <div className="text-sm text-muted-foreground">
-                            {material.part_number} • {material.quantity} {material.unit} • {material.location}
-                          </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {categoryMaterials.map((material) => (
+                  <Card key={material.id} className="hover:shadow-md transition-shadow">
+                    <CardHeader className="pb-3">
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center gap-2">
+                          <Package className="h-4 w-4" />
+                          <CardTitle className="text-lg">{material.name}</CardTitle>
                         </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline">{material.status}</Badge>
                         <div className="flex gap-1">
                           <Button
+                            variant="ghost"
                             size="sm"
-                            variant="outline"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleEditMaterial(material)
-                            }}
+                            onClick={() => setMaterialEditDialog({ open: true, material })}
                           >
-                            <Edit className="h-4 w-4" />
+                            Edit
                           </Button>
-                          {material.notes && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                handleMaterialClick(material.id)
-                              }}
-                            >
-                              <FileText className="h-4 w-4" />
-                            </Button>
-                          )}
                           <Button
+                            variant="ghost"
                             size="sm"
-                            variant="outline"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleDeleteMaterial(material)
-                            }}
+                            onClick={() => setMaterialDeleteDialog({ open: true, material })}
                           >
-                            <Trash2 className="h-4 w-4" />
+                            Delete
                           </Button>
                         </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-8 text-muted-foreground">
-                  <Package className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <p>No materials in this category yet</p>
-                  <Button
-                    variant="outline"
-                    className="mt-2 bg-transparent"
-                    onClick={() => handleAddMaterial(category.id)}
-                  >
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add First Material
-                  </Button>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        ))}
+                      {material.description && <CardDescription>{material.description}</CardDescription>}
+                    </CardHeader>
+                    <CardContent className="space-y-2">
+                      {material.part_number && (
+                        <div className="text-sm">
+                          <span className="font-medium">Part Number:</span> {material.part_number}
+                        </div>
+                      )}
+                      {material.specifications && (
+                        <div className="text-sm">
+                          <span className="font-medium">Specifications:</span> {material.specifications}
+                        </div>
+                      )}
+                      {material.notes && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setMaterialNotesDialog({ open: true, material })}
+                        >
+                          View Notes
+                        </Button>
+                      )}
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
 
-        {categories.length === 0 && (
-          <Card>
-            <CardContent className="text-center py-12">
-              <Package className="h-16 w-16 mx-auto mb-4 opacity-50" />
-              <h3 className="text-lg font-semibold mb-2">No Categories Yet</h3>
-              <p className="text-muted-foreground mb-4">Create your first category to start organizing materials</p>
-              <Button onClick={() => setCategoryDialogOpen(true)}>
-                <Plus className="h-4 w-4 mr-2" />
-                Create Category
-              </Button>
-            </CardContent>
-          </Card>
-        )}
-      </div>
+              {categoryMaterials.length === 0 && (
+                <div className="text-center py-8 text-muted-foreground">No materials found in this category</div>
+              )}
+            </div>
+          ))}
+        </TabsContent>
+
+        {categories.map((category) => (
+          <TabsContent key={category.id} value={category.id} className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Tag className="h-5 w-5" />
+                <h2 className="text-xl font-semibold">{category.name}</h2>
+                <Badge variant="secondary">
+                  {filteredMaterials.filter((m) => m.category_id === category.id).length}
+                </Badge>
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => setCategoryEditDialog({ open: true, category })}>
+                  Edit Category
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setCategoryDeleteDialog({ open: true, category })}>
+                  Delete Category
+                </Button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filteredMaterials
+                .filter((material) => material.category_id === category.id)
+                .map((material) => (
+                  <Card key={material.id} className="hover:shadow-md transition-shadow">
+                    <CardHeader className="pb-3">
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center gap-2">
+                          <Package className="h-4 w-4" />
+                          <CardTitle className="text-lg">{material.name}</CardTitle>
+                        </div>
+                        <div className="flex gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setMaterialEditDialog({ open: true, material })}
+                          >
+                            Edit
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setMaterialDeleteDialog({ open: true, material })}
+                          >
+                            Delete
+                          </Button>
+                        </div>
+                      </div>
+                      {material.description && <CardDescription>{material.description}</CardDescription>}
+                    </CardHeader>
+                    <CardContent className="space-y-2">
+                      {material.part_number && (
+                        <div className="text-sm">
+                          <span className="font-medium">Part Number:</span> {material.part_number}
+                        </div>
+                      )}
+                      {material.specifications && (
+                        <div className="text-sm">
+                          <span className="font-medium">Specifications:</span> {material.specifications}
+                        </div>
+                      )}
+                      {material.notes && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setMaterialNotesDialog({ open: true, material })}
+                        >
+                          View Notes
+                        </Button>
+                      )}
+                    </CardContent>
+                  </Card>
+                ))}
+            </div>
+
+            {filteredMaterials.filter((m) => m.category_id === category.id).length === 0 && (
+              <div className="text-center py-8 text-muted-foreground">No materials found in this category</div>
+            )}
+          </TabsContent>
+        ))}
+      </Tabs>
 
       {/* Dialogs */}
-      <CategoryDialog
-        open={categoryDialogOpen}
-        onOpenChange={setCategoryDialogOpen}
-        brandSlug={brandSlug}
-        onSuccess={refreshData}
-      />
-
       <MaterialDialog
         open={materialDialogOpen}
         onOpenChange={setMaterialDialogOpen}
-        categoryId={selectedCategoryId}
-        onSuccess={refreshData}
+        onSubmit={handleMaterialCreate}
+        categories={categories}
       />
 
-      {editingMaterial && (
-        <MaterialEditDialog
-          material={editingMaterial}
-          open={!!editingMaterial}
-          onOpenChange={(open) => !open && setEditingMaterial(null)}
-          onSuccess={refreshData}
-        />
-      )}
+      <MaterialEditDialog
+        open={materialEditDialog.open}
+        onOpenChange={(open) => setMaterialEditDialog({ open, material: null })}
+        material={materialEditDialog.material}
+        onSubmit={handleMaterialUpdate}
+        categories={categories}
+      />
 
-      {deletingMaterial && (
-        <MaterialDeleteDialog
-          material={deletingMaterial}
-          open={!!deletingMaterial}
-          onOpenChange={(open) => !open && setDeletingMaterial(null)}
-          onSuccess={refreshData}
-        />
-      )}
+      <MaterialDeleteDialog
+        open={materialDeleteDialog.open}
+        onOpenChange={(open) => setMaterialDeleteDialog({ open, material: null })}
+        material={materialDeleteDialog.material}
+        onConfirm={handleMaterialDelete}
+      />
 
-      {editingCategory && (
-        <CategoryEditDialog
-          category={editingCategory}
-          open={!!editingCategory}
-          onOpenChange={(open) => !open && setEditingCategory(null)}
-          onSuccess={refreshData}
-        />
-      )}
+      <MaterialNotesDialog
+        open={materialNotesDialog.open}
+        onOpenChange={(open) => setMaterialNotesDialog({ open, material: null })}
+        material={materialNotesDialog.material}
+      />
 
-      {deletingCategory && (
-        <CategoryDeleteDialog
-          category={deletingCategory}
-          open={!!deletingCategory}
-          onOpenChange={(open) => !open && setDeletingCategory(null)}
-          onSuccess={refreshData}
-        />
-      )}
+      <CategoryDialog open={categoryDialogOpen} onOpenChange={setCategoryDialogOpen} onSubmit={handleCategoryCreate} />
 
-      {selectedMaterial && (
-        <MaterialNotesDialog materialId={selectedMaterial} open={notesDialogOpen} onOpenChange={setNotesDialogOpen} />
-      )}
+      <CategoryEditDialog
+        open={categoryEditDialog.open}
+        onOpenChange={(open) => setCategoryEditDialog({ open, category: null })}
+        category={categoryEditDialog.category}
+        onSubmit={handleCategoryUpdate}
+      />
+
+      <CategoryDeleteDialog
+        open={categoryDeleteDialog.open}
+        onOpenChange={(open) => setCategoryDeleteDialog({ open, category: null })}
+        category={categoryDeleteDialog.category}
+        onConfirm={handleCategoryDelete}
+      />
     </div>
   )
 }

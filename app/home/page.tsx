@@ -1,79 +1,21 @@
-import type React from "react"
-import type { Metadata } from "next"
-import Link from "next/link"
-import { redirect } from "next/navigation"
-import { createClient } from "@/lib/supabase/server"
-import { Button } from "@/components/ui/button"
-import { UserCircle, Bell } from "lucide-react"
-import { checkIsAdmin } from "@/lib/auth-utils"
-import { HomeNavigation } from "@/components/home/home-navigation"
-import { RecentActivity } from "@/components/home/recent-activity"
-import { SystemStatus } from "@/components/home/system-status"
-import { UserStats } from "@/components/home/user-stats"
-import { Announcements } from "@/components/home/announcements"
-import { LogoutButton } from "@/components/auth/logout-button"
 import { Suspense } from "react"
+import { createClient } from "@/lib/supabase/server"
+import { redirect } from "next/navigation"
+import { HomeNavigation } from "@/components/home/home-navigation"
 import { QuickActions } from "@/components/home/quick-actions"
+import { RecentActivity } from "@/components/home/recent-activity"
+import { UserStats } from "@/components/home/user-stats"
+import { SystemStatus } from "@/components/home/system-status"
+import { Announcements } from "@/components/home/announcements"
+import { Loader2 } from "lucide-react"
 
-export const metadata: Metadata = {
-  title: "Home | Tracker App",
-  description: "Welcome to your personalized home page",
-}
+// Force dynamic rendering to handle cookies properly
+export const dynamic = "force-dynamic"
 
-async function getHomePageData() {
-  const supabase = createClient()
-
-  // Get recent trackers
-  const { data: trackers } = await supabase
-    .from("trackers")
-    .select("id, name, created_at, updated_at")
-    .order("updated_at", { ascending: false })
-    .limit(5)
-
-  // Get recent reserve items
-  const { data: reserveItems } = await supabase
-    .from("reserve_items")
-    .select("id, name, created_at, updated_at")
-    .order("updated_at", { ascending: false })
-    .limit(5)
-
-  // Get user count
-  const { count: userCount } = await supabase.from("profiles").select("*", { count: "exact", head: true })
-
-  // Get tracker count
-  const { count: trackerCount } = await supabase.from("trackers").select("*", { count: "exact", head: true })
-
-  // Get reserve item count
-  const { count: reserveItemCount } = await supabase.from("reserve_items").select("*", { count: "exact", head: true })
-
-  return {
-    trackers: trackers || [],
-    reserveItems: reserveItems || [],
-    stats: {
-      userCount: userCount || 0,
-      trackerCount: trackerCount || 0,
-      reserveItemCount: reserveItemCount || 0,
-    },
-  }
-}
-
-function LoadingSkeleton() {
-  return (
-    <div className="animate-pulse">
-      <div className="h-8 bg-gray-200 rounded w-1/4 mb-4"></div>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {[...Array(6)].map((_, i) => (
-          <div key={i} className="h-32 bg-gray-200 rounded"></div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-export default async function HomePage() {
-  const supabase = createClient()
-
+async function HomeContent() {
   try {
+    const supabase = createClient()
+
     const {
       data: { session },
     } = await supabase.auth.getSession()
@@ -82,75 +24,130 @@ export default async function HomePage() {
       redirect("/login")
     }
 
-    const userIsAdmin = await checkIsAdmin() // No longer passing userId
-    const { data: profile } = await supabase.from("profiles").select("*").eq("id", session.user.id).single()
+    // Get user profile
+    let userProfile = null
+    try {
+      const { data: profile } = await supabase.from("profiles").select("*").eq("id", session.user.id).single()
 
-    const { trackers, reserveItems, stats } = await getHomePageData()
+      userProfile = profile
+    } catch (error) {
+      console.error("Error fetching user profile:", error)
+    }
 
-    // Get user's last login time
-    const { data: authUser } = await supabase
-      .from("auth.users")
-      .select("last_sign_in_at")
-      .eq("id", session.user.id)
-      .single()
+    // Get recent activity
+    let recentActivity = []
+    try {
+      const { data: activity } = await supabase
+        .from("tracker_logs")
+        .select(`
+          *,
+          tracker:trackers(name)
+        `)
+        .order("created_at", { ascending: false })
+        .limit(5)
 
-    const lastLogin = authUser?.last_sign_in_at ? new Date(authUser.last_sign_in_at) : null
+      recentActivity = activity || []
+    } catch (error) {
+      console.error("Error fetching recent activity:", error)
+    }
+
+    // Get user stats
+    const userStats = {
+      totalTrackers: 0,
+      activeTrackers: 0,
+      completedTrackers: 0,
+      totalSheets: 0,
+    }
+
+    try {
+      const [trackersResult, sheetsResult] = await Promise.all([
+        supabase.from("trackers").select("status").eq("created_by", session.user.id),
+        supabase.from("sheets").select("id").eq("created_by", session.user.id),
+      ])
+
+      if (trackersResult.data) {
+        userStats.totalTrackers = trackersResult.data.length
+        userStats.activeTrackers = trackersResult.data.filter((t) => t.status === "active").length
+        userStats.completedTrackers = trackersResult.data.filter((t) => t.status === "completed").length
+      }
+
+      if (sheetsResult.data) {
+        userStats.totalSheets = sheetsResult.data.length
+      }
+    } catch (error) {
+      console.error("Error fetching user stats:", error)
+    }
 
     return (
-      <div className="container mx-auto py-6 px-4 space-y-8">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">Welcome back, {session.user.email?.split("@")[0]}!</h1>
-            <p className="text-muted-foreground">Here's what's happening with your projects today.</p>
-          </div>
-          <div className="flex flex-col sm:flex-row gap-2">
-            <Button variant="secondary" size="sm" asChild className="w-full sm:w-auto">
-              <Link href="/profile">
-                <UserCircle className="mr-2 h-4 w-4" />
-                Profile
-              </Link>
-            </Button>
-            <Button variant="secondary" size="sm" className="w-full sm:w-auto">
-              <Bell className="mr-2 h-4 w-4" />
-              Notifications
-            </Button>
-            <LogoutButton quickAction />
-          </div>
+      <div className="container mx-auto py-6 space-y-6">
+        <div className="flex flex-col gap-2">
+          <h1 className="text-3xl font-bold">Welcome back, {userProfile?.full_name || session.user.email}!</h1>
+          <p className="text-muted-foreground">Here's what's happening with your projects today.</p>
         </div>
 
-        <Suspense fallback={<LoadingSkeleton />}>
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <div className="lg:col-span-2 space-y-8">
-              <HomeNavigation isAdmin={userIsAdmin} />
-              <QuickActions />
-              <RecentActivity trackers={trackers} reserveItems={reserveItems} />
-            </div>
-            <div className="space-y-8">
-              <UserStats stats={stats} />
-              <SystemStatus />
-              <Announcements />
-            </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 space-y-6">
+            <HomeNavigation />
+            <QuickActions />
+            <RecentActivity activities={recentActivity} />
           </div>
-        </Suspense>
+
+          <div className="space-y-6">
+            <UserStats stats={userStats} />
+            <SystemStatus />
+            <Announcements />
+          </div>
+        </div>
       </div>
     )
   } catch (error) {
     console.error("Error in HomePage:", error)
-    redirect("/login")
+
+    // Fallback content for preview or when database is unavailable
+    return (
+      <div className="container mx-auto py-6 space-y-6">
+        <div className="flex flex-col gap-2">
+          <h1 className="text-3xl font-bold">Welcome to Site Tracker!</h1>
+          <p className="text-muted-foreground">Your project management dashboard.</p>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 space-y-6">
+            <HomeNavigation />
+            <QuickActions />
+            <RecentActivity activities={[]} />
+          </div>
+
+          <div className="space-y-6">
+            <UserStats
+              stats={{
+                totalTrackers: 0,
+                activeTrackers: 0,
+                completedTrackers: 0,
+                totalSheets: 0,
+              }}
+            />
+            <SystemStatus />
+            <Announcements />
+          </div>
+        </div>
+      </div>
+    )
   }
 }
 
-function QuickActionButton({ icon, label, href }: { icon: React.ReactNode; label: string; href: string }) {
+function LoadingFallback() {
   return (
-    <Button
-      asChild
-      variant="outline"
-      className="flex h-16 sm:h-20 w-full flex-col items-center justify-center gap-1 p-2 bg-transparent"
-    >
-      <Link href={href}>
-        <div className="rounded-full bg-primary/10 p-1.5 sm:p-2">{icon}</div>
-        <span className="text-xs font-medium text-center leading-tight">{label}</span>
-      </Link>
-    </Button>
+    <div className="flex items-center justify-center min-h-screen">
+      <Loader2 className="h-8 w-8 animate-spin" />
+    </div>
+  )
+}
+
+export default function HomePage() {
+  return (
+    <Suspense fallback={<LoadingFallback />}>
+      <HomeContent />
+    </Suspense>
   )
 }
