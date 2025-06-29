@@ -25,7 +25,7 @@ export default async function ReserveTrackerPage() {
     const items = await getReserveItems()
 
     return (
-      <div className="container mx-auto py-4 px-4 sm:px-6 sm:py-6 max-w-full">
+      <div className="container mx-auto py-6">
         {isAdmin && (
           <div className="mb-4 flex justify-end">
             <Button
@@ -34,8 +34,7 @@ export default async function ReserveTrackerPage() {
               asChild
             >
               <Link href="/reserve-tracker/permissions">
-                <FileText className="mr-2 h-4 w-4" />
-                <span className="hidden sm:inline">Manage</span> Permissions
+                <FileText className="mr-2 h-4 w-4" /> Manage Permissions
               </Link>
             </Button>
           </div>
@@ -46,7 +45,7 @@ export default async function ReserveTrackerPage() {
   } catch (error) {
     console.error("Error in ReserveTrackerPage:", error)
     return (
-      <div className="container mx-auto py-4 px-4 sm:py-6">
+      <div className="container mx-auto py-6">
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
           <p className="font-bold">Error loading Reserve Tracker</p>
           <p>There was a problem loading your data. Please try again later.</p>

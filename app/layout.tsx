@@ -1,40 +1,28 @@
 import type React from "react"
-import { Inter } from "next/font/google"
 import "./globals.css"
-import { ClientProviders } from "@/components/client-providers"
-import { Toaster } from "@/components/ui/toaster"
-import { Suspense } from "react"
+import type { Metadata } from "next"
+import { Inter } from "next/font/google"
+import { ThemeProvider } from "@/components/theme-provider"
 
 const inter = Inter({ subsets: ["latin"] })
 
-export const metadata = {
-  title: "Tracker App",
-  description: "Material and project tracking application",
+export const metadata: Metadata = {
+  title: "Site Tracker",
+  description: "Application for managing and tracking site information",
     generator: 'v0.dev'
-}
-
-function LoadingFallback() {
-  return (
-    <div className="min-h-screen flex items-center justify-center">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
-    </div>
-  )
 }
 
 export default function RootLayout({
   children,
-}: {
+}: Readonly<{
   children: React.ReactNode
-}) {
+}>) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body className={inter.className} suppressHydrationWarning>
-        <Suspense fallback={<LoadingFallback />}>
-          <ClientProviders>
-            {children}
-            <Toaster />
-          </ClientProviders>
-        </Suspense>
+    <html lang="en" dir="ltr">
+      <body className={inter.className}>
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+          {children}
+        </ThemeProvider>
       </body>
     </html>
   )

@@ -25,43 +25,44 @@ export async function Header() {
 
   return (
     <header className="sticky top-0 z-40 border-b bg-background">
-      <div className="container mx-auto flex h-14 sm:h-16 items-center justify-between px-4 sm:px-6">
-        <div className="flex items-center gap-3 sm:gap-6">
-          <Link href="/" className="text-lg sm:text-xl font-bold truncate">
+      <div className="container mx-auto flex h-16 items-center justify-between px-4">
+        <div className="flex items-center gap-6">
+          <Link href="/" className="text-xl font-bold">
             Tracker App
           </Link>
           {user && (
             <Link
               href="/navigation"
-              className="hidden sm:flex items-center gap-2 rounded-md bg-primary px-2 sm:px-3 py-1.5 sm:py-2 text-xs sm:text-sm font-medium text-primary-foreground"
+              className="flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground"
             >
-              <Menu className="h-3 w-3 sm:h-4 sm:w-4" />
-              <span className="hidden md:inline">Navigation</span>
+              <Menu className="h-4 w-4" />
+              Navigation
             </Link>
           )}
         </div>
-        <div className="flex items-center gap-2 sm:gap-4">
+        <div className="flex items-center gap-4">
           {user ? (
             <>
-              <Button variant="ghost" size="sm" asChild className="hidden sm:flex">
+              <Button variant="ghost" size="sm" asChild>
                 <Link href="/home">
                   <Home className="mr-2 h-4 w-4" />
-                  <span className="hidden lg:inline">Home</span>
+                  Home
                 </Link>
               </Button>
-              <Button variant="ghost" size="sm" asChild className="sm:hidden">
+              <Button variant="ghost" size="sm" asChild>
                 <Link href="/navigation">
-                  <Menu className="h-4 w-4" />
+                  <Menu className="mr-2 h-4 w-4" />
+                  Navigation
                 </Link>
               </Button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" className="relative h-8 w-8 rounded-full">
-                    <User className="h-4 w-4 sm:h-5 sm:w-5" />
+                    <User className="h-5 w-5" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-56">
-                  <DropdownMenuLabel className="truncate">{user.email}</DropdownMenuLabel>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuLabel>{user.email}</DropdownMenuLabel>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem asChild>
                     <Link href="/navigation" className="cursor-pointer">
@@ -83,10 +84,10 @@ export async function Header() {
             </>
           ) : (
             <>
-              <Button asChild variant="ghost" size="sm">
+              <Button asChild variant="ghost">
                 <Link href="/login">Log in</Link>
               </Button>
-              <Button asChild size="sm">
+              <Button asChild>
                 <Link href="/signup">Sign up</Link>
               </Button>
             </>

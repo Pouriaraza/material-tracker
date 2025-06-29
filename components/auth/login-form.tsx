@@ -23,12 +23,10 @@ export function LoginForm() {
 
   // Check for error in URL
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const url = new URL(window.location.href)
-      const errorMessage = url.searchParams.get("error")
-      if (errorMessage) {
-        setError(errorMessage)
-      }
+    const url = new URL(window.location.href)
+    const errorMessage = url.searchParams.get("error")
+    if (errorMessage) {
+      setError(errorMessage)
     }
   }, [])
 
@@ -38,32 +36,6 @@ export function LoginForm() {
     setIsLoading(true)
 
     try {
-      // Check if we're in preview mode
-      const isPreview = typeof window !== "undefined" && window.location.hostname.includes("lite.vusercontent.net")
-
-      if (isPreview) {
-        // Mock authentication for preview
-        await new Promise((resolve) => setTimeout(resolve, 1000))
-
-        if (email && password) {
-          // Simulate successful login
-          localStorage.setItem(
-            "mock-auth",
-            JSON.stringify({
-              user: { id: "mock-user", email, name: "Demo User" },
-              session: { access_token: "mock-token" },
-            }),
-          )
-
-          router.push("/home")
-          return
-        } else {
-          setError("Please enter both email and password")
-          setIsLoading(false)
-          return
-        }
-      }
-
       const { error } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -79,14 +51,11 @@ export function LoginForm() {
       router.push("/home")
       router.refresh()
     } catch (err) {
-      console.error("Login error:", err)
       setError("An unexpected error occurred")
+      console.error(err)
       setIsLoading(false)
     }
   }
-
-  // Check if we're in preview mode
-  const isPreview = typeof window !== "undefined" && window.location.hostname.includes("lite.vusercontent.net")
 
   return (
     <Card className="w-full max-w-md">
@@ -137,13 +106,6 @@ export function LoginForm() {
             )}
           </Button>
         </form>
-        {isPreview && (
-          <div className="mt-4 p-3 bg-blue-50 rounded-md border border-blue-200">
-            <p className="text-sm text-blue-800">
-              <strong>Preview Mode:</strong> Use any email and password to login
-            </p>
-          </div>
-        )}
       </CardContent>
       <CardFooter className="flex justify-center">
         <p className="text-sm text-muted-foreground">
