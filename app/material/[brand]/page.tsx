@@ -6,7 +6,7 @@ import { useToast } from "@/hooks/use-toast"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Loader2, Plus, Package, ArrowLeft } from "lucide-react"
+import { Loader2, Plus, Package, ArrowLeft, Edit, Trash2, FileText } from "lucide-react"
 import { CategoryDialog } from "@/components/material/category-dialog"
 import { MaterialDialog } from "@/components/material/material-dialog"
 import { MaterialEditDialog } from "@/components/material/material-edit-dialog"
@@ -76,32 +76,111 @@ export default function BrandMaterialPage() {
     try {
       setLoading(true)
 
-      // Fetch brand info
-      const brandResponse = await fetch(`/api/material/brands/${brandSlug}`)
-      if (!brandResponse.ok) {
-        throw new Error("Failed to fetch brand")
+      // Mock data for preview - replace with actual API calls
+      const mockBrand: Brand = {
+        id: "1",
+        name: brandSlug.charAt(0).toUpperCase() + brandSlug.slice(1),
+        slug: brandSlug,
+        description: `${brandSlug} telecommunications equipment and materials`,
+        color: "#3b82f6",
       }
-      const brandData = await brandResponse.json()
-      setBrand(brandData)
 
-      // Fetch categories for this brand
-      const categoriesResponse = await fetch(`/api/material/categories?brand=${brandSlug}`)
-      if (!categoriesResponse.ok) {
-        throw new Error("Failed to fetch categories")
-      }
-      const categoriesData = await categoriesResponse.json()
-      setCategories(categoriesData)
+      const mockCategories: Category[] = [
+        {
+          id: "1",
+          name: "Antennas",
+          description: "Various antenna types and configurations",
+          color: "#ef4444",
+          created_at: new Date().toISOString(),
+        },
+        {
+          id: "2",
+          name: "Cables",
+          description: "RF and power cables",
+          color: "#10b981",
+          created_at: new Date().toISOString(),
+        },
+        {
+          id: "3",
+          name: "Power Systems",
+          description: "Power supplies and backup systems",
+          color: "#f59e0b",
+          created_at: new Date().toISOString(),
+        },
+      ]
 
-      // Fetch materials for each category
-      const materialsData: { [categoryId: string]: Material[] } = {}
-      for (const category of categoriesData) {
-        const materialsResponse = await fetch(`/api/material/items?category=${category.id}`)
-        if (materialsResponse.ok) {
-          const categoryMaterials = await materialsResponse.json()
-          materialsData[category.id] = categoryMaterials
-        }
+      const mockMaterials: { [categoryId: string]: Material[] } = {
+        "1": [
+          {
+            id: "1",
+            name: "Sector Antenna 65°",
+            description: "High-gain sector antenna with 65° beamwidth",
+            notes: "Suitable for urban deployments with high capacity requirements",
+            part_number: "ANT-SEC-65-001",
+            quantity: 25,
+            unit: "pcs",
+            location: "Warehouse A-1",
+            status: "Available",
+            material_categories: {
+              name: "Antennas",
+              color: "#ef4444",
+            },
+          },
+          {
+            id: "2",
+            name: "Omni Antenna 2.4GHz",
+            description: "Omnidirectional antenna for 2.4GHz band",
+            notes: "Good for small cell deployments",
+            part_number: "ANT-OMNI-24-002",
+            quantity: 50,
+            unit: "pcs",
+            location: "Warehouse A-2",
+            status: "Available",
+            material_categories: {
+              name: "Antennas",
+              color: "#ef4444",
+            },
+          },
+        ],
+        "2": [
+          {
+            id: "3",
+            name: 'RF Cable 7/8"',
+            description: "Low-loss RF cable for base station connections",
+            notes: "Weather-resistant outer jacket, suitable for outdoor installations",
+            part_number: "CBL-RF-78-100",
+            quantity: 500,
+            unit: "meters",
+            location: "Warehouse B-1",
+            status: "Available",
+            material_categories: {
+              name: "Cables",
+              color: "#10b981",
+            },
+          },
+        ],
+        "3": [
+          {
+            id: "4",
+            name: "DC Power Supply 48V",
+            description: "Rectifier system for telecom applications",
+            notes: "Includes battery backup capability and remote monitoring",
+            part_number: "PWR-DC-48V-50A",
+            quantity: 10,
+            unit: "units",
+            location: "Warehouse C-1",
+            status: "Available",
+            material_categories: {
+              name: "Power Systems",
+              color: "#f59e0b",
+            },
+          },
+        ],
       }
-      setMaterials(materialsData)
+
+      setBrand(mockBrand)
+      setCategories(mockCategories)
+      setMaterials(mockMaterials)
     } catch (error) {
       console.error("Error fetching brand data:", error)
       toast({
@@ -223,7 +302,7 @@ export default function BrandMaterialPage() {
                         <div>
                           <div className="font-medium">{material.name}</div>
                           <div className="text-sm text-muted-foreground">
-                            {material.part_number} • {material.quantity} {material.unit}
+                            {material.part_number} • {material.quantity} {material.unit} • {material.location}
                           </div>
                         </div>
                       </div>
@@ -238,8 +317,20 @@ export default function BrandMaterialPage() {
                               handleEditMaterial(material)
                             }}
                           >
-                            Edit
+                            <Edit className="h-4 w-4" />
                           </Button>
+                          {material.notes && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleMaterialClick(material.id)
+                              }}
+                            >
+                              <FileText className="h-4 w-4" />
+                            </Button>
+                          )}
                           <Button
                             size="sm"
                             variant="outline"
@@ -248,7 +339,7 @@ export default function BrandMaterialPage() {
                               handleDeleteMaterial(material)
                             }}
                           >
-                            Delete
+                            <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
                       </div>
