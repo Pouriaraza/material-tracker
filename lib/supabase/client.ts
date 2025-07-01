@@ -8,8 +8,8 @@ export const createClient = () => {
 
 // Create client with explicit URL and key for cases where auth helpers don't work
 export const createDirectClient = () => {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL=https://idxihzbsgucrjtpwvkrg.supabase.co
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlkeGloemJzZ3Vjcmp0cHd2a3JnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDY0MzM5MjgsImV4cCI6MjA2MjAwOTkyOH0.2rcXgIZwOXyrsn6P_09YxUQr96GPdK652X1xroEP104
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
   if (!supabaseUrl || !supabaseAnonKey) {
     throw new Error("Missing Supabase environment variables")
