@@ -1,22 +1,32 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
-  DialogTitle,
   DialogDescription,
   DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog"
-import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { AlertCircle, Trash2, UserPlus } from "lucide-react"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { createClient } from "@/lib/supabase/client"
 import { Badge } from "@/components/ui/badge"
+import { Trash2, Users, Plus, Loader2, AlertCircle } from "lucide-react"
+import { toast } from "sonner"
+import { createClient } from "@/lib/supabase/client"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+
+interface Permission {
+  id: string
+  user_id: string
+  permission_type: string
+  user_email?: string
+  user_name?: string
+  created_at: string
+}
 
 interface SheetPermissionsDialogProps {
   open: boolean
@@ -25,361 +35,379 @@ interface SheetPermissionsDialogProps {
   sheetName: string
 }
 
-interface Permission {
-  id: string
-  user_id: string
-  user_email: string
-  role_id: string
-  role_name: string
-}
-
-interface Role {
-  id: string
-  name: string
-  description: string
-}
-
-export function SheetPermissionsDialog({ open, onOpenChange, sheetId, sheetName }: SheetPermissionsDialogProps) {
-  const supabase = createClient()
+export default function SheetPermissionsDialog({
+  open,
+  onOpenChange,
+  sheetId,
+  sheetName,
+}: SheetPermissionsDialogProps) {
   const [permissions, setPermissions] = useState<Permission[]>([])
-  const [roles, setRoles] = useState<Role[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [adding, setAdding] = useState(false)
+  const [setupNeeded, setSetupNeeded] = useState(false)
+  const [settingUp, setSettingUp] = useState(false)
   const [newUserEmail, setNewUserEmail] = useState("")
-  const [newUserRole, setNewUserRole] = useState("")
-  const [addingUser, setAddingUser] = useState(false)
-  const [currentUser, setCurrentUser] = useState<any>(null)
+  const [newPermissionType, setNewPermissionType] = useState("read")
+  const supabase = createClient()
 
-  // Load permissions and roles when dialog opens
-  useEffect(() => {
-    if (open) {
-      loadPermissions()
-      loadRoles()
-      getCurrentUser()
-    }
-  }, [open])
-
-  const getCurrentUser = async () => {
+  const setupTable = async () => {
+    setSettingUp(true)
     try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
-      setCurrentUser(user)
-    } catch (err) {
-      console.error("Error getting current user:", err)
+      const response = await fetch("/api/setup-sheet-permissions", {
+        method: "POST",
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to setup table")
+      }
+
+      toast.success("Sheet permissions table created successfully")
+      setSetupNeeded(false)
+      await fetchPermissions()
+    } catch (error) {
+      console.error("Error setting up table:", error)
+      toast.error("Failed to setup permissions table")
+    } finally {
+      setSettingUp(false)
     }
   }
 
-  const loadPermissions = async () => {
-    setLoading(true)
-    setError(null)
+  const fetchPermissions = async () => {
+    if (!open) return
 
+    setLoading(true)
     try {
-      // Get permissions for this sheet
+      // Get sheet permissions with user details
       const { data: permissionsData, error: permissionsError } = await supabase
         .from("sheet_permissions")
         .select(`
-        id,
-        user_id,
-        role_id
-      `)
+          id,
+          user_id,
+          permission_type,
+          created_at
+        `)
         .eq("sheet_id", sheetId)
 
       if (permissionsError) {
-        throw permissionsError
-      }
+        console.error("Error fetching permissions:", permissionsError)
 
-      // If no permissions, return empty array
-      if (!permissionsData || permissionsData.length === 0) {
-        setPermissions([])
+        // If table doesn't exist, show setup needed
+        if (permissionsError.code === "42P01" || permissionsError.message?.includes("does not exist")) {
+          setSetupNeeded(true)
+          setPermissions([])
+          return
+        }
+
+        toast.error("Failed to load permissions")
         return
       }
 
-      // Get role information
-      const roleIds = permissionsData.map((p) => p.role_id)
-      const { data: rolesData, error: rolesError } = await supabase
-        .from("user_roles")
-        .select("id, name")
-        .in("id", roleIds)
+      // Get user details for each permission
+      const permissionsWithUsers = []
+      for (const permission of permissionsData || []) {
+        try {
+          // Try to get user from profiles first
+          const { data: profileData, error: profileError } = await supabase
+            .from("profiles")
+            .select("email, full_name")
+            .eq("id", permission.user_id)
+            .single()
 
-      if (rolesError) {
-        throw rolesError
+          if (!profileError && profileData) {
+            permissionsWithUsers.push({
+              ...permission,
+              user_email: profileData.email,
+              user_name: profileData.full_name,
+            })
+          } else {
+            // Fallback: show unknown user
+            permissionsWithUsers.push({
+              ...permission,
+              user_email: "Unknown User",
+              user_name: null,
+            })
+          }
+        } catch (error) {
+          console.error("Error loading user data:", error)
+          permissionsWithUsers.push({
+            ...permission,
+            user_email: "Unknown User",
+            user_name: null,
+          })
+        }
       }
 
-      // Create a map of role IDs to role names
-      const roleMap = rolesData.reduce((map, role) => {
-        map[role.id] = role.name
-        return map
-      }, {})
-
-      // Get user information from auth.users
-      const userIds = permissionsData.map((p) => p.user_id)
-
-      // We need to get user emails from profiles table instead of auth.users
-      const { data: profilesData, error: profilesError } = await supabase
-        .from("profiles")
-        .select("id, email")
-        .in("id", userIds)
-
-      if (profilesError) {
-        throw profilesError
-      }
-
-      // Create a map of user IDs to emails
-      const userMap = profilesData.reduce((map, profile) => {
-        map[profile.id] = profile.email
-        return map
-      }, {})
-
-      // Format the permissions data
-      const formattedPermissions = permissionsData.map((item) => ({
-        id: item.id,
-        user_id: item.user_id,
-        user_email: userMap[item.user_id] || "Unknown user",
-        role_id: item.role_id,
-        role_name: roleMap[item.role_id] || "Unknown role",
-      }))
-
-      setPermissions(formattedPermissions)
-    } catch (err: any) {
-      console.error("Error loading permissions:", err)
-      setError("Failed to load permissions: " + (err.message || "Unknown error"))
+      setPermissions(permissionsWithUsers)
+      setSetupNeeded(false)
+    } catch (error) {
+      console.error("Error in fetchPermissions:", error)
+      toast.error("Failed to load permissions")
     } finally {
       setLoading(false)
     }
   }
 
-  const loadRoles = async () => {
-    try {
-      const { data, error } = await supabase.from("user_roles").select("*").order("name")
-
-      if (error) {
-        throw error
-      }
-
-      setRoles(data)
-
-      // Set default role to viewer if available
-      const viewerRole = data.find((role) => role.name.toLowerCase() === "viewer")
-      if (viewerRole) {
-        setNewUserRole(viewerRole.id)
-      } else if (data.length > 0) {
-        setNewUserRole(data[0].id)
-      }
-    } catch (err: any) {
-      console.error("Error loading roles:", err)
-      setError("Failed to load roles: " + (err.message || "Unknown error"))
-    }
-  }
-
-  const handleAddUser = async () => {
-    if (!newUserEmail.trim() || !newUserRole) {
-      setError("Please enter an email address and select a role")
+  const addPermission = async () => {
+    if (!newUserEmail.trim()) {
+      toast.error("Please enter a user email")
       return
     }
 
-    setAddingUser(true)
-    setError(null)
-
+    setAdding(true)
     try {
-      // First, find the user by email in the profiles table
+      // First, find the user by email
       const { data: userData, error: userError } = await supabase
         .from("profiles")
-        .select("id")
+        .select("id, email, full_name")
         .eq("email", newUserEmail.trim())
         .single()
 
-      if (userError) {
-        throw new Error("User not found. Please check the email address.")
+      if (userError || !userData) {
+        toast.error("User not found. Please make sure the email is correct and the user has an account.")
+        return
       }
 
-      // Check if permission already exists
-      const { data: existingPerm, error: existingError } = await supabase
-        .from("sheet_permissions")
-        .select("id")
-        .eq("sheet_id", sheetId)
-        .eq("user_id", userData.id)
-        .maybeSingle()
-
-      if (existingPerm) {
-        // Update existing permission
-        const { error: updateError } = await supabase
-          .from("sheet_permissions")
-          .update({ role_id: newUserRole })
-          .eq("id", existingPerm.id)
-
-        if (updateError) {
-          throw updateError
-        }
-      } else {
-        // Create new permission
-        const { error: insertError } = await supabase.from("sheet_permissions").insert({
-          sheet_id: sheetId,
-          user_id: userData.id,
-          role_id: newUserRole,
-        })
-
-        if (insertError) {
-          throw insertError
-        }
+      // Check if user already has permission
+      const existingPermission = permissions.find((p) => p.user_id === userData.id)
+      if (existingPermission) {
+        toast.error("User already has permission for this sheet")
+        return
       }
 
-      // Reload permissions
-      await loadPermissions()
+      // Add permission
+      const { error: insertError } = await supabase.from("sheet_permissions").insert({
+        sheet_id: sheetId,
+        user_id: userData.id,
+        permission_type: newPermissionType,
+      })
 
-      // Reset form
+      if (insertError) {
+        console.error("Error adding permission:", insertError)
+        toast.error("Failed to add user permission")
+        return
+      }
+
+      toast.success("User added successfully")
+
       setNewUserEmail("")
-    } catch (err: any) {
-      console.error("Error adding user:", err)
-      setError(err.message || "Failed to add user")
+      setNewPermissionType("read")
+      await fetchPermissions()
+    } catch (error) {
+      console.error("Error in addPermission:", error)
+      toast.error("Failed to add user")
     } finally {
-      setAddingUser(false)
+      setAdding(false)
     }
   }
 
-  const handleRemovePermission = async (permissionId: string, userId: string) => {
-    // Don't allow removing your own permission if you're the owner
-    if (currentUser && userId === currentUser.id) {
-      setError("You cannot remove your own permission")
-      return
-    }
-
+  const removePermission = async (permissionId: string) => {
     try {
       const { error } = await supabase.from("sheet_permissions").delete().eq("id", permissionId)
 
       if (error) {
-        throw error
+        console.error("Error removing permission:", error)
+        toast.error("Failed to remove user")
+        return
       }
 
-      // Reload permissions
-      await loadPermissions()
-    } catch (err: any) {
-      console.error("Error removing permission:", err)
-      setError("Failed to remove permission: " + (err.message || "Unknown error"))
+      toast.success("User removed successfully")
+      await fetchPermissions()
+    } catch (error) {
+      console.error("Error in removePermission:", error)
+      toast.error("Failed to remove user")
     }
   }
 
-  const handleUpdateRole = async (permissionId: string, userId: string, newRoleId: string) => {
+  const updatePermission = async (permissionId: string, newType: string) => {
     try {
-      const { error } = await supabase.from("sheet_permissions").update({ role_id: newRoleId }).eq("id", permissionId)
+      const { error } = await supabase
+        .from("sheet_permissions")
+        .update({ permission_type: newType, updated_at: new Date().toISOString() })
+        .eq("id", permissionId)
 
       if (error) {
-        throw error
+        console.error("Error updating permission:", error)
+        toast.error("Failed to update permission")
+        return
       }
 
-      // Reload permissions
-      await loadPermissions()
-    } catch (err: any) {
-      console.error("Error updating role:", err)
-      setError("Failed to update role: " + (err.message || "Unknown error"))
+      toast.success("Permission updated successfully")
+      await fetchPermissions()
+    } catch (error) {
+      console.error("Error in updatePermission:", error)
+      toast.error("Failed to update permission")
+    }
+  }
+
+  useEffect(() => {
+    if (open) {
+      fetchPermissions()
+    }
+  }, [open])
+
+  const getPermissionBadgeVariant = (type: string) => {
+    switch (type) {
+      case "admin":
+        return "destructive" as const
+      case "write":
+        return "default" as const
+      case "read":
+        return "secondary" as const
+      default:
+        return "outline" as const
     }
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Manage Access to "{sheetName}"</DialogTitle>
-          <DialogDescription>Control who can access this sheet and what they can do with it.</DialogDescription>
+          <DialogTitle className="flex items-center gap-2">
+            <Users className="h-5 w-5" />
+            Sheet Permissions - {sheetName}
+          </DialogTitle>
+          <DialogDescription>Manage who can access this sheet and their permission levels.</DialogDescription>
         </DialogHeader>
 
-        {error && (
-          <Alert variant="destructive" className="mt-4">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
+        <div className="space-y-6">
+          {/* Setup Alert */}
+          {setupNeeded && (
+            <Alert>
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>
+                The permissions system needs to be set up for this sheet.
+                <Button onClick={setupTable} disabled={settingUp} className="ml-2" size="sm">
+                  {settingUp ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Setting up...
+                    </>
+                  ) : (
+                    "Setup Now"
+                  )}
+                </Button>
+              </AlertDescription>
+            </Alert>
+          )}
 
-        <div className="space-y-6 py-4">
-          <div className="space-y-4">
-            <h3 className="text-sm font-medium">Add a user</h3>
-            <div className="flex items-end gap-2">
-              <div className="grid flex-1 gap-2">
-                <Label htmlFor="email">Email address</Label>
-                <Input
-                  id="email"
-                  placeholder="user@example.com"
-                  type="email"
-                  value={newUserEmail}
-                  onChange={(e) => setNewUserEmail(e.target.value)}
-                />
+          {/* Add New User */}
+          {!setupNeeded && (
+            <div className="space-y-4 p-4 border rounded-lg">
+              <h4 className="font-medium flex items-center gap-2">
+                <Plus className="h-4 w-4" />
+                Add New User
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="md:col-span-2">
+                  <Label htmlFor="email">User Email</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    placeholder="user@example.com"
+                    value={newUserEmail}
+                    onChange={(e) => setNewUserEmail(e.target.value)}
+                    disabled={adding}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        addPermission()
+                      }
+                    }}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="permission">Permission</Label>
+                  <Select value={newPermissionType} onValueChange={setNewPermissionType} disabled={adding}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="read">Read Only</SelectItem>
+                      <SelectItem value="write">Read & Write</SelectItem>
+                      <SelectItem value="admin">Admin</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
-              <div className="grid gap-2 min-w-[120px]">
-                <Label htmlFor="role">Role</Label>
-                <Select value={newUserRole} onValueChange={setNewUserRole}>
-                  <SelectTrigger id="role">
-                    <SelectValue placeholder="Select role" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {roles.map((role) => (
-                      <SelectItem key={role.id} value={role.id}>
-                        {role.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <Button
-                type="button"
-                size="icon"
-                onClick={handleAddUser}
-                disabled={addingUser || !newUserEmail || !newUserRole}
-              >
-                <UserPlus className="h-4 w-4" />
-                <span className="sr-only">Add user</span>
+              <Button onClick={addPermission} disabled={adding} className="w-full">
+                {adding ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Adding User...
+                  </>
+                ) : (
+                  <>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Add User
+                  </>
+                )}
               </Button>
             </div>
-          </div>
+          )}
 
-          <div className="space-y-4">
-            <h3 className="text-sm font-medium">Current access</h3>
-            {loading ? (
-              <p className="text-sm text-muted-foreground">Loading permissions...</p>
-            ) : permissions.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No users have been granted access yet.</p>
-            ) : (
-              <div className="space-y-2">
-                {permissions.map((permission) => (
-                  <div key={permission.id} className="flex items-center justify-between p-2 border rounded-md">
-                    <div className="flex flex-col">
-                      <span className="text-sm font-medium">{permission.user_email}</span>
-                      <Badge variant="outline" className="w-fit">
-                        {permission.role_name}
-                      </Badge>
+          {/* Current Permissions */}
+          {!setupNeeded && (
+            <div className="space-y-4">
+              <h4 className="font-medium">Current Users ({permissions.length})</h4>
+
+              {loading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin" />
+                  <span className="ml-2">Loading permissions...</span>
+                </div>
+              ) : permissions.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  No users have been granted access to this sheet yet.
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-60 overflow-y-auto">
+                  {permissions.map((permission) => (
+                    <div key={permission.id} className="flex items-center justify-between p-3 border rounded-lg">
+                      <div className="flex-1">
+                        <div className="font-medium">{permission.user_email || "Unknown User"}</div>
+                        {permission.user_name && (
+                          <div className="text-sm text-muted-foreground">{permission.user_name}</div>
+                        )}
+                        <div className="text-xs text-muted-foreground">
+                          Added {new Date(permission.created_at).toLocaleDateString()}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <Select
+                          value={permission.permission_type}
+                          onValueChange={(value) => updatePermission(permission.id, value)}
+                        >
+                          <SelectTrigger className="w-32">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="read">Read Only</SelectItem>
+                            <SelectItem value="write">Read & Write</SelectItem>
+                            <SelectItem value="admin">Admin</SelectItem>
+                          </SelectContent>
+                        </Select>
+
+                        <Badge variant={getPermissionBadgeVariant(permission.permission_type)}>
+                          {permission.permission_type}
+                        </Badge>
+
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removePermission(permission.id)}
+                          className="text-destructive hover:text-destructive"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Select
-                        value={permission.role_id}
-                        onValueChange={(value) => handleUpdateRole(permission.id, permission.user_id, value)}
-                      >
-                        <SelectTrigger className="h-8 w-[100px]">
-                          <SelectValue placeholder="Change role" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {roles.map((role) => (
-                            <SelectItem key={role.id} value={role.id}>
-                              {role.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-destructive"
-                        onClick={() => handleRemovePermission(permission.id, permission.user_id)}
-                        disabled={currentUser && permission.user_id === currentUser.id}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                        <span className="sr-only">Remove</span>
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <DialogFooter>
@@ -391,6 +419,3 @@ export function SheetPermissionsDialog({ open, onOpenChange, sheetId, sheetName 
     </Dialog>
   )
 }
-
-// Make sure to export the component as default as well
-export default SheetPermissionsDialog
