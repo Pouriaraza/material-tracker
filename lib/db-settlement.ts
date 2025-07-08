@@ -1,5 +1,4 @@
 import { createClient } from "@/lib/supabase/server"
-import { createAdminClient } from "@/lib/supabase/admin"
 import { cookies } from "next/headers"
 
 export type SettlementItem = {
@@ -11,11 +10,12 @@ export type SettlementItem = {
   updated_at: string
 }
 
-// Check if the settlement_items table exists using admin client
+// Check if the settlement_items table exists
 export async function checkSettlementItemsTable(): Promise<boolean> {
-  try {
-    const supabase = createAdminClient()
+  const cookieStore = cookies()
+  const supabase = createClient(cookieStore)
 
+  try {
     // Check if the table exists by attempting to query it
     const { error } = await supabase.from("settlement_items").select("id").limit(1)
 
@@ -25,7 +25,7 @@ export async function checkSettlementItemsTable(): Promise<boolean> {
     }
 
     // If the error is about the table not existing, return false
-    if (error.message.includes("does not exist") || error.message.includes("relation") || error.code === "42P01") {
+    if (error.message.includes("does not exist")) {
       return false
     }
 
@@ -40,17 +40,17 @@ export async function checkSettlementItemsTable(): Promise<boolean> {
 
 // Get all settlement items
 export async function getSettlementItems(): Promise<SettlementItem[]> {
+  const cookieStore = cookies()
+  const supabase = createClient(cookieStore)
+
   try {
-    // Check if the table exists first
+    // Check if the table exists
     const tableExists = await checkSettlementItemsTable()
 
     if (!tableExists) {
-      console.log("Settlement items table does not exist")
+      // Return empty array if table doesn't exist
       return []
     }
-
-    const cookieStore = cookies()
-    const supabase = createClient(cookieStore)
 
     const { data, error } = await supabase
       .from("settlement_items")
@@ -59,19 +59,7 @@ export async function getSettlementItems(): Promise<SettlementItem[]> {
 
     if (error) {
       console.error("Error fetching settlement items:", error)
-      // Try with admin client if regular client fails
-      const adminSupabase = createAdminClient()
-      const { data: adminData, error: adminError } = await adminSupabase
-        .from("settlement_items")
-        .select("*")
-        .order("created_at", { ascending: false })
-
-      if (adminError) {
-        console.error("Error fetching settlement items with admin client:", adminError)
-        return []
-      }
-
-      return adminData || []
+      return []
     }
 
     return data || []
@@ -201,14 +189,14 @@ export async function importSettlementItems(mrNumbers: string[]): Promise<{
     throw new Error("Invalid MR numbers provided")
   }
 
+  const cookieStore = cookies()
+  const supabase = createClient(cookieStore)
+
   // Check if the table exists
   const tableExists = await checkSettlementItemsTable()
   if (!tableExists) {
     throw new Error("Settlement items table does not exist. Please run the migration first.")
   }
-
-  const cookieStore = cookies()
-  const supabase = createClient(cookieStore)
 
   // Check for existing MR numbers
   const { data: existingItems, error: checkError } = await supabase
@@ -230,7 +218,7 @@ export async function importSettlementItems(mrNumbers: string[]): Promise<{
 
   const itemsToInsert = newMrNumbers.map((mrNumber) => ({
     mr_number: mrNumber,
-    status: "none" as const,
+    status: "none",
   }))
 
   const { data, error } = await supabase.from("settlement_items").insert(itemsToInsert).select()
@@ -296,65 +284,5 @@ export async function bulkDeleteSettlementItems(ids: string[]): Promise<void> {
   if (error) {
     console.error("Error bulk deleting settlement items:", error)
     throw new Error(`Failed to delete items: ${error.message}`)
-  }
-}
-
-// Create settlement items table if it doesn't exist
-export async function createSettlementItemsTable(): Promise<{ success: boolean; message: string }> {
-  try {
-    const adminSupabase = createAdminClient()
-
-    // Create the table using raw SQL
-    const { error } = await adminSupabase.rpc("execute_sql", {
-      sql_query: `
-        CREATE TABLE IF NOT EXISTS settlement_items (
-          id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-          mr_number TEXT NOT NULL UNIQUE,
-          status TEXT NOT NULL DEFAULT 'none' CHECK (status IN ('none', 'problem', 'done')),
-          notes TEXT,
-          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-          updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-        );
-        
-        -- Create index on mr_number for faster lookups
-        CREATE INDEX IF NOT EXISTS idx_settlement_items_mr_number ON settlement_items(mr_number);
-        
-        -- Create index on status for filtering
-        CREATE INDEX IF NOT EXISTS idx_settlement_items_status ON settlement_items(status);
-        
-        -- Enable RLS
-        ALTER TABLE settlement_items ENABLE ROW LEVEL SECURITY;
-        
-        -- Create policy to allow authenticated users to read all records
-        DROP POLICY IF EXISTS "Allow authenticated users to read settlement items" ON settlement_items;
-        CREATE POLICY "Allow authenticated users to read settlement items" ON settlement_items
-          FOR SELECT USING (auth.role() = 'authenticated');
-        
-        -- Create policy to allow authenticated users to insert records
-        DROP POLICY IF EXISTS "Allow authenticated users to insert settlement items" ON settlement_items;
-        CREATE POLICY "Allow authenticated users to insert settlement items" ON settlement_items
-          FOR INSERT WITH CHECK (auth.role() = 'authenticated');
-        
-        -- Create policy to allow authenticated users to update records
-        DROP POLICY IF EXISTS "Allow authenticated users to update settlement items" ON settlement_items;
-        CREATE POLICY "Allow authenticated users to update settlement items" ON settlement_items
-          FOR UPDATE USING (auth.role() = 'authenticated');
-        
-        -- Create policy to allow authenticated users to delete records
-        DROP POLICY IF EXISTS "Allow authenticated users to delete settlement items" ON settlement_items;
-        CREATE POLICY "Allow authenticated users to delete settlement items" ON settlement_items
-          FOR DELETE USING (auth.role() = 'authenticated');
-      `,
-    })
-
-    if (error) {
-      console.error("Error creating settlement_items table:", error)
-      return { success: false, message: `Failed to create table: ${error.message}` }
-    }
-
-    return { success: true, message: "Settlement items table created successfully" }
-  } catch (error) {
-    console.error("Error in createSettlementItemsTable:", error)
-    return { success: false, message: `Unexpected error: ${error instanceof Error ? error.message : "Unknown error"}` }
   }
 }
