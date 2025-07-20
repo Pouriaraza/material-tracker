@@ -1,50 +1,63 @@
-import { type NextRequest, NextResponse } from "next/server"
+import { NextResponse } from "next/server"
 import { sheetsDB } from "@/lib/db-sheets-new"
 import { createClient } from "@/lib/supabase/server"
 
-export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(request: Request, { params }: { params: { id: string } }) {
   try {
     const supabase = createClient()
 
-    // Get current user
+    // بررسی احراز هویت
     const {
       data: { user },
-      error: userError,
+      error: authError,
     } = await supabase.auth.getUser()
 
-    if (userError || !user) {
-      return NextResponse.json({ error: "Authentication required" }, { status: 401 })
+    if (authError || !user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
     const sheetId = params.id
     const body = await request.json()
-    const { name, type, validation_rules = {}, format_options = {} } = body
+    const { name, type, validation_rules, format_options, default_value } = body
+
+    if (!sheetId) {
+      return NextResponse.json({ error: "Sheet ID is required" }, { status: 400 })
+    }
 
     if (!name || !type) {
       return NextResponse.json({ error: "Column name and type are required" }, { status: 400 })
     }
 
-    const column = await sheetsDB.addColumn(
+    // اضافه کردن ستون جدید
+    const newColumn = await sheetsDB.addColumn(
       sheetId,
       {
         name,
         type,
-        validation_rules,
-        format_options,
+        validation_rules: validation_rules || {},
+        format_options: format_options || {},
+        default_value,
       },
       user.id,
     )
 
-    if (!column) {
+    if (!newColumn) {
       return NextResponse.json({ error: "Failed to add column" }, { status: 500 })
     }
 
     return NextResponse.json({
       success: true,
-      column,
+      message: "Column added successfully",
+      data: newColumn,
     })
-  } catch (error) {
-    console.error("Add column error:", error)
-    return NextResponse.json({ error: "Failed to add column", details: error.message }, { status: 500 })
+  } catch (error: any) {
+    console.error("Error adding column:", error)
+    return NextResponse.json(
+      {
+        success: false,
+        error: error.message || "Failed to add column",
+      },
+      { status: 500 },
+    )
   }
 }

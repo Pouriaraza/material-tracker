@@ -1,23 +1,28 @@
-import { type NextRequest, NextResponse } from "next/server"
+import { NextResponse } from "next/server"
 import { sheetsDB } from "@/lib/db-sheets-new"
 import { createClient } from "@/lib/supabase/server"
 
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(request: Request, { params }: { params: { id: string } }) {
   try {
     const supabase = createClient()
 
-    // Get current user
+    // بررسی احراز هویت
     const {
       data: { user },
-      error: userError,
+      error: authError,
     } = await supabase.auth.getUser()
 
-    if (userError || !user) {
-      return NextResponse.json({ error: "Authentication required" }, { status: 401 })
+    if (authError || !user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
     const sheetId = params.id
 
+    if (!sheetId) {
+      return NextResponse.json({ error: "Sheet ID is required" }, { status: 400 })
+    }
+
+    // دریافت داده‌های شیت
     const sheetData = await sheetsDB.getSheetData(sheetId, user.id)
 
     if (!sheetData) {
@@ -28,46 +33,63 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       success: true,
       data: sheetData,
     })
-  } catch (error) {
-    console.error("Get sheet error:", error)
-    return NextResponse.json({ error: "Failed to get sheet data", details: error.message }, { status: 500 })
+  } catch (error: any) {
+    console.error("Error fetching sheet data:", error)
+    return NextResponse.json(
+      {
+        success: false,
+        error: error.message || "Failed to fetch sheet data",
+      },
+      { status: 500 },
+    )
   }
 }
 
-export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(request: Request, { params }: { params: { id: string } }) {
   try {
     const supabase = createClient()
 
-    // Get current user
+    // بررسی احراز هویت
     const {
       data: { user },
-      error: userError,
+      error: authError,
     } = await supabase.auth.getUser()
 
-    if (userError || !user) {
-      return NextResponse.json({ error: "Authentication required" }, { status: 401 })
+    if (authError || !user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
     const sheetId = params.id
     const body = await request.json()
     const { updates } = body
 
+    if (!sheetId) {
+      return NextResponse.json({ error: "Sheet ID is required" }, { status: 400 })
+    }
+
     if (!updates || !Array.isArray(updates)) {
       return NextResponse.json({ error: "Updates array is required" }, { status: 400 })
     }
 
-    const success = await sheetsDB.bulkUpdateCells(updates)
+    // به‌روزرسانی دسته‌ای سلول‌ها
+    const result = await sheetsDB.bulkUpdateCells(updates)
 
-    if (!success) {
+    if (!result) {
       return NextResponse.json({ error: "Failed to update cells" }, { status: 500 })
     }
 
     return NextResponse.json({
       success: true,
-      message: "Cells updated successfully",
+      message: `Successfully updated ${updates.length} cells`,
     })
-  } catch (error) {
-    console.error("Update sheet error:", error)
-    return NextResponse.json({ error: "Failed to update sheet", details: error.message }, { status: 500 })
+  } catch (error: any) {
+    console.error("Error updating sheet:", error)
+    return NextResponse.json(
+      {
+        success: false,
+        error: error.message || "Failed to update sheet",
+      },
+      { status: 500 },
+    )
   }
 }

@@ -9,66 +9,72 @@ type Cell = Database["public"]["Tables"]["cells"]["Row"]
 export async function getSheets(userId: string) {
   const supabase = createClient()
 
-  try {
-    // Get all sheets - no permission filtering
-    const { data: sheets, error } = await supabase.from("sheets").select("*").order("created_at", { ascending: false })
+  // Get sheets owned by the user
+  const { data: ownedSheets, error: ownedError } = await supabase
+    .from("sheets")
+    .select("*")
+    .eq("owner_id", userId)
+    .order("created_at", { ascending: false })
 
-    if (error) {
-      console.error("Error fetching sheets:", error)
-      return []
-    }
-
-    // Get owner emails using the function
-    const sheetsWithOwnerInfo = await Promise.all(
-      (sheets || []).map(async (sheet) => {
-        const { data: ownerEmail, error: emailError } = await supabase.rpc("get_user_email", {
-          user_id: sheet.owner_id,
-        })
-
-        return {
-          ...sheet,
-          owner_email: emailError ? "Unknown User" : ownerEmail,
-          access_level: sheet.owner_id === userId ? "owner" : "editor",
-          is_owner: sheet.owner_id === userId,
-        }
-      }),
-    )
-
-    return sheetsWithOwnerInfo
-  } catch (error) {
-    console.error("Error in getSheets:", error)
+  if (ownedError) {
+    console.error("Error fetching owned sheets:", ownedError)
     return []
   }
+
+  // Get sheets shared with the user
+  const { data: sharedSheets, error: sharedError } = await supabase
+    .from("sheet_permissions")
+    .select(`
+      sheet_id,
+      sheets:sheet_id (*)
+    `)
+    .eq("user_id", userId)
+
+  if (sharedError) {
+    console.error("Error fetching shared sheets:", sharedError)
+    return ownedSheets || []
+  }
+
+  // Combine owned and shared sheets
+  const sharedSheetsData = sharedSheets?.map((item) => item.sheets) || []
+  const allSheets = [...(ownedSheets || []), ...sharedSheetsData]
+
+  // Remove duplicates
+  const uniqueSheets = allSheets.filter((sheet, index, self) => index === self.findIndex((s) => s.id === sheet.id))
+
+  return uniqueSheets
 }
 
 export async function getSheetById(sheetId: string, userId: string) {
   const supabase = createClient()
 
-  try {
-    // Get sheet without permission checking
-    const { data: sheet, error: sheetError } = await supabase.from("sheets").select("*").eq("id", sheetId).single()
+  // Check if user has access to this sheet
+  const { data: sheet, error: sheetError } = await supabase.from("sheets").select("*").eq("id", sheetId).single()
 
-    if (sheetError) {
-      console.error("Error fetching sheet:", sheetError)
-      return null
-    }
-
-    // Get owner email
-    const { data: ownerEmail, error: emailError } = await supabase.rpc("get_user_email", {
-      user_id: sheet.owner_id,
-    })
-
-    // Everyone can access all sheets
-    return {
-      ...sheet,
-      owner_email: emailError ? "Unknown User" : ownerEmail,
-      access_level: sheet.owner_id === userId ? "owner" : "editor",
-      is_owner: sheet.owner_id === userId,
-    }
-  } catch (error) {
-    console.error("Error in getSheetById:", error)
+  if (sheetError) {
+    console.error("Error fetching sheet:", sheetError)
     return null
   }
+
+  // If user is the owner, they have full access
+  if (sheet.owner_id === userId) {
+    return sheet
+  }
+
+  // If user is not the owner, check permissions
+  const { data: permission, error: permissionError } = await supabase
+    .from("sheet_permissions")
+    .select("*")
+    .eq("sheet_id", sheetId)
+    .eq("user_id", userId)
+    .single()
+
+  if (permissionError || !permission) {
+    console.error("User does not have permission to access this sheet")
+    return null
+  }
+
+  return sheet
 }
 
 export async function getSheetColumns(sheetId: string) {
@@ -185,7 +191,14 @@ export async function createSheet(name: string, userId: string) {
 export async function updateSheetName(sheetId: string, name: string, userId: string) {
   const supabase = createClient()
 
-  // Everyone can update sheet names
+  // Check if user is the owner
+  const { data: sheet, error: sheetError } = await supabase.from("sheets").select("owner_id").eq("id", sheetId).single()
+
+  if (sheetError || sheet.owner_id !== userId) {
+    console.error("User does not have permission to update this sheet")
+    return false
+  }
+
   const { error } = await supabase.from("sheets").update({ name }).eq("id", sheetId)
 
   if (error) {
@@ -200,7 +213,7 @@ export async function deleteSheet(sheetId: string, userId: string) {
   const supabase = createClient()
 
   try {
-    // Check if user is the owner (only owners can delete sheets)
+    // Check if user is the owner
     const { data: sheet, error: sheetError } = await supabase
       .from("sheets")
       .select("owner_id")
@@ -213,8 +226,16 @@ export async function deleteSheet(sheetId: string, userId: string) {
     }
 
     if (sheet.owner_id !== userId) {
-      console.error("Only sheet owners can delete sheets")
+      console.error("User does not have permission to delete this sheet")
       return false
+    }
+
+    // First delete sheet permissions
+    const { error: permissionsError } = await supabase.from("sheet_permissions").delete().eq("sheet_id", sheetId)
+
+    if (permissionsError) {
+      console.error("Error deleting sheet permissions:", permissionsError)
+      // Continue with deletion even if permissions deletion fails
     }
 
     // Delete the sheet (cascade will delete related columns, rows, and cells)
@@ -241,7 +262,49 @@ export async function addColumn(
 ) {
   const supabase = createClient()
 
-  // Everyone can add columns
+  // Check if user has edit permission
+  const { data: sheet, error: sheetError } = await supabase.from("sheets").select("owner_id").eq("id", sheetId).single()
+
+  if (sheetError) {
+    console.error("Error fetching sheet:", sheetError)
+    return null
+  }
+
+  let hasEditPermission = sheet.owner_id === userId
+
+  if (!hasEditPermission) {
+    const { data: permission, error: permissionError } = await supabase
+      .from("sheet_permissions")
+      .select("role_id")
+      .eq("sheet_id", sheetId)
+      .eq("user_id", userId)
+      .single()
+
+    if (permissionError) {
+      console.error("Error checking permissions:", permissionError)
+      return null
+    }
+
+    // Get role name
+    const { data: role, error: roleError } = await supabase
+      .from("user_roles")
+      .select("name")
+      .eq("id", permission.role_id)
+      .single()
+
+    if (roleError) {
+      console.error("Error fetching role:", roleError)
+      return null
+    }
+
+    hasEditPermission = role.name === "admin" || role.name === "editor"
+  }
+
+  if (!hasEditPermission) {
+    console.error("User does not have permission to add columns")
+    return null
+  }
+
   // Get the highest position
   const { data: columns, error: columnsError } = await supabase
     .from("columns")
@@ -275,7 +338,49 @@ export async function addColumn(
 export async function updateColumns(sheetId: string, columns: any[], userId: string) {
   const supabase = createClient()
 
-  // Everyone can update columns
+  // Check if user has edit permission
+  const { data: sheet, error: sheetError } = await supabase.from("sheets").select("owner_id").eq("id", sheetId).single()
+
+  if (sheetError) {
+    console.error("Error fetching sheet:", sheetError)
+    return false
+  }
+
+  let hasEditPermission = sheet.owner_id === userId
+
+  if (!hasEditPermission) {
+    const { data: permission, error: permissionError } = await supabase
+      .from("sheet_permissions")
+      .select("role_id")
+      .eq("sheet_id", sheetId)
+      .eq("user_id", userId)
+      .single()
+
+    if (permissionError) {
+      console.error("Error checking permissions:", permissionError)
+      return false
+    }
+
+    // Get role name
+    const { data: role, error: roleError } = await supabase
+      .from("user_roles")
+      .select("name")
+      .eq("id", permission.role_id)
+      .single()
+
+    if (roleError) {
+      console.error("Error fetching role:", roleError)
+      return false
+    }
+
+    hasEditPermission = role.name === "admin" || role.name === "editor"
+  }
+
+  if (!hasEditPermission) {
+    console.error("User does not have permission to update columns")
+    return false
+  }
+
   // Get existing columns
   const { data: existingColumns, error: columnsError } = await supabase
     .from("columns")
@@ -346,7 +451,49 @@ export async function updateColumns(sheetId: string, columns: any[], userId: str
 export async function addRow(sheetId: string, userId: string) {
   const supabase = createClient()
 
-  // Everyone can add rows
+  // Check if user has edit permission
+  const { data: sheet, error: sheetError } = await supabase.from("sheets").select("owner_id").eq("id", sheetId).single()
+
+  if (sheetError) {
+    console.error("Error fetching sheet:", sheetError)
+    return null
+  }
+
+  let hasEditPermission = sheet.owner_id === userId
+
+  if (!hasEditPermission) {
+    const { data: permission, error: permissionError } = await supabase
+      .from("sheet_permissions")
+      .select("role_id")
+      .eq("sheet_id", sheetId)
+      .eq("user_id", userId)
+      .single()
+
+    if (permissionError) {
+      console.error("Error checking permissions:", permissionError)
+      return null
+    }
+
+    // Get role name
+    const { data: role, error: roleError } = await supabase
+      .from("user_roles")
+      .select("name")
+      .eq("id", permission.role_id)
+      .single()
+
+    if (roleError) {
+      console.error("Error fetching role:", roleError)
+      return null
+    }
+
+    hasEditPermission = role.name === "admin" || role.name === "editor"
+  }
+
+  if (!hasEditPermission) {
+    console.error("User does not have permission to add rows")
+    return null
+  }
+
   // Get the highest position
   const { data: rows, error: rowsError } = await supabase
     .from("rows")
@@ -420,7 +567,61 @@ export async function addRow(sheetId: string, userId: string) {
 export async function updateCell(rowId: string, columnId: string, value: any, userId: string) {
   const supabase = createClient()
 
-  // Everyone can update cells
+  // Get the sheet_id from the row
+  const { data: row, error: rowError } = await supabase.from("rows").select("sheet_id").eq("id", rowId).single()
+
+  if (rowError) {
+    console.error("Error fetching row:", rowError)
+    return false
+  }
+
+  // Check if user has edit permission
+  const { data: sheet, error: sheetError } = await supabase
+    .from("sheets")
+    .select("owner_id")
+    .eq("id", row.sheet_id)
+    .single()
+
+  if (sheetError) {
+    console.error("Error fetching sheet:", sheetError)
+    return false
+  }
+
+  let hasEditPermission = sheet.owner_id === userId
+
+  if (!hasEditPermission) {
+    const { data: permission, error: permissionError } = await supabase
+      .from("sheet_permissions")
+      .select("role_id")
+      .eq("sheet_id", row.sheet_id)
+      .eq("user_id", userId)
+      .single()
+
+    if (permissionError) {
+      console.error("Error checking permissions:", permissionError)
+      return false
+    }
+
+    // Get role name
+    const { data: role, error: roleError } = await supabase
+      .from("user_roles")
+      .select("name")
+      .eq("id", permission.role_id)
+      .single()
+
+    if (roleError) {
+      console.error("Error fetching role:", roleError)
+      return false
+    }
+
+    hasEditPermission = role.name === "admin" || role.name === "editor"
+  }
+
+  if (!hasEditPermission) {
+    console.error("User does not have permission to update cells")
+    return false
+  }
+
   // Check if cell exists
   const { data: cell, error: cellError } = await supabase
     .from("cells")
@@ -458,7 +659,61 @@ export async function updateCell(rowId: string, columnId: string, value: any, us
 export async function deleteRow(rowId: string, userId: string) {
   const supabase = createClient()
 
-  // Everyone can delete rows
+  // Get the sheet_id from the row
+  const { data: row, error: rowError } = await supabase.from("rows").select("sheet_id").eq("id", rowId).single()
+
+  if (rowError) {
+    console.error("Error fetching row:", rowError)
+    return false
+  }
+
+  // Check if user has edit permission
+  const { data: sheet, error: sheetError } = await supabase
+    .from("sheets")
+    .select("owner_id")
+    .eq("id", row.sheet_id)
+    .single()
+
+  if (sheetError) {
+    console.error("Error fetching sheet:", sheetError)
+    return false
+  }
+
+  let hasEditPermission = sheet.owner_id === userId
+
+  if (!hasEditPermission) {
+    const { data: permission, error: permissionError } = await supabase
+      .from("sheet_permissions")
+      .select("role_id")
+      .eq("sheet_id", row.sheet_id)
+      .eq("user_id", userId)
+      .single()
+
+    if (permissionError) {
+      console.error("Error checking permissions:", permissionError)
+      return false
+    }
+
+    // Get role name
+    const { data: role, error: roleError } = await supabase
+      .from("user_roles")
+      .select("name")
+      .eq("id", permission.role_id)
+      .single()
+
+    if (roleError) {
+      console.error("Error fetching role:", roleError)
+      return false
+    }
+
+    hasEditPermission = role.name === "admin" || role.name === "editor"
+  }
+
+  if (!hasEditPermission) {
+    console.error("User does not have permission to delete rows")
+    return false
+  }
+
   // Delete the row (cascade will delete related cells)
   const { error } = await supabase.from("rows").delete().eq("id", rowId)
 
@@ -470,9 +725,112 @@ export async function deleteRow(rowId: string, userId: string) {
   return true
 }
 
-export async function shareSheet(sheetId: string, userEmail: string, accessLevel: string, userId: string) {
-  // This function is now deprecated since everyone has access
-  // But we'll keep it for backward compatibility
-  console.log("Sheet sharing is no longer needed - all sheets are public")
+export async function shareSheet(sheetId: string, userEmail: string, roleName: string, userId: string) {
+  const supabase = createClient()
+
+  // Check if user is the owner or has admin permissions
+  const { data: sheet, error: sheetError } = await supabase.from("sheets").select("owner_id").eq("id", sheetId).single()
+
+  if (sheetError) {
+    console.error("Error fetching sheet:", sheetError)
+    return false
+  }
+
+  let hasSharePermission = sheet.owner_id === userId
+
+  if (!hasSharePermission) {
+    // Check if user has admin role for this sheet
+    const { data: permission, error: permissionError } = await supabase
+      .from("sheet_permissions")
+      .select("role_id")
+      .eq("sheet_id", sheetId)
+      .eq("user_id", userId)
+      .single()
+
+    if (permissionError) {
+      console.error("Error checking permissions:", permissionError)
+      return false
+    }
+
+    // Get role name
+    const { data: role, error: roleError } = await supabase
+      .from("user_roles")
+      .select("name")
+      .eq("id", permission.role_id)
+      .single()
+
+    if (roleError) {
+      console.error("Error fetching role:", roleError)
+      return false
+    }
+
+    hasSharePermission = role.name === "admin"
+  }
+
+  if (!hasSharePermission) {
+    console.error("User does not have permission to share this sheet")
+    return false
+  }
+
+  // Get the user to share with from profiles table
+  const { data: targetUser, error: userError } = await supabase
+    .from("profiles")
+    .select("id")
+    .eq("email", userEmail)
+    .single()
+
+  if (userError) {
+    console.error("User not found:", userError)
+    return false
+  }
+
+  // Get the role ID
+  const { data: role, error: roleError } = await supabase.from("user_roles").select("id").eq("name", roleName).single()
+
+  if (roleError) {
+    console.error("Role not found:", roleError)
+    return false
+  }
+
+  // Check if permission already exists
+  const { data: existingPermission, error: permissionError } = await supabase
+    .from("sheet_permissions")
+    .select("id")
+    .eq("sheet_id", sheetId)
+    .eq("user_id", targetUser.id)
+    .maybeSingle()
+
+  if (permissionError && !permissionError.message.includes("No rows found")) {
+    console.error("Error checking existing permission:", permissionError)
+    return false
+  }
+
+  if (existingPermission) {
+    // Update existing permission
+    const { error: updateError } = await supabase
+      .from("sheet_permissions")
+      .update({ role_id: role.id })
+      .eq("id", existingPermission.id)
+
+    if (updateError) {
+      console.error("Error updating permission:", updateError)
+      return false
+    }
+  } else {
+    // Create new permission
+    const { error: insertError } = await supabase.from("sheet_permissions").insert([
+      {
+        sheet_id: sheetId,
+        user_id: targetUser.id,
+        role_id: role.id,
+      },
+    ])
+
+    if (insertError) {
+      console.error("Error creating permission:", insertError)
+      return false
+    }
+  }
+
   return true
 }

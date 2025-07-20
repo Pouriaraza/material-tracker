@@ -1,27 +1,15 @@
-import { CardFooter } from "@/components/ui/card"
 import { redirect } from "next/navigation"
+import Link from "next/link"
 import { createClient } from "@/lib/supabase/server"
 import { getSheets } from "@/lib/db"
 import { getUserTrackers } from "@/lib/db-trackers"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Badge } from "@/components/ui/badge"
-import {
-  Plus,
-  FileSpreadsheet,
-  Target,
-  AlertTriangle,
-  ClipboardList,
-  FileText,
-  Package,
-  Users,
-  Calendar,
-  User,
-} from "lucide-react"
+import { Plus, FileSpreadsheet, Target, AlertTriangle, ClipboardList, FileText, Package } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { DeleteSheetButton } from "@/components/delete-sheet-button"
 import { checkIsAdmin } from "@/lib/auth-utils"
-import Link from "next/link"
 
 export default async function DashboardPage() {
   const supabase = createClient()
@@ -60,16 +48,7 @@ export default async function DashboardPage() {
   return (
     <div className="container mx-auto py-10">
       <div className="flex justify-between items-center mb-8">
-        <div>
-          <h1 className="text-3xl font-bold">Dashboard</h1>
-          <p className="text-muted-foreground mt-2">Manage your spreadsheets and data</p>
-        </div>
-        <Button asChild>
-          <Link href="/sheets/new">
-            <Plus className="h-4 w-4 mr-2" />
-            New Sheet
-          </Link>
-        </Button>
+        <h1 className="text-3xl font-bold">Dashboard</h1>
       </div>
 
       <Tabs defaultValue="sheets" className="w-full">
@@ -92,51 +71,13 @@ export default async function DashboardPage() {
         </TabsList>
 
         <TabsContent value="sheets">
-          {/* Sheets Grid */}
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {sheets.map((sheet) => (
-              <Card key={sheet.id} className="hover:shadow-md transition-shadow">
-                <CardHeader className="pb-3">
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center gap-2">
-                      <FileSpreadsheet className="h-5 w-5 text-primary" />
-                      <CardTitle className="text-lg line-clamp-1">{sheet.name}</CardTitle>
-                    </div>
-                    {sheet.is_owner ? (
-                      <Badge variant="default" className="text-xs">
-                        Owner
-                      </Badge>
-                    ) : (
-                      <Badge variant="secondary" className="text-xs bg-green-100 text-green-800">
-                        Public
-                      </Badge>
-                    )}
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <User className="h-3 w-3" />
-                    <span>Created by: {sheet.owner_email}</span>
-                  </div>
-
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Calendar className="h-3 w-3" />
-                    <span>Created: {new Date(sheet.created_at).toLocaleDateString()}</span>
-                  </div>
-
-                  <div className="flex items-center gap-2 text-sm text-green-600">
-                    <Users className="h-3 w-3" />
-                    <span>Open to all users</span>
-                  </div>
-
-                  <div className="pt-2">
-                    <Button asChild className="w-full bg-transparent" variant="outline">
-                      <Link href={`/sheets/${sheet.id}`}>Open Sheet</Link>
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-2xl font-semibold">Your Sheets</h2>
+            <Button asChild>
+              <Link href="/sheets/new">
+                <Plus className="mr-2 h-4 w-4" /> Create New Sheet
+              </Link>
+            </Button>
           </div>
 
           {sheetsError ? (
@@ -146,24 +87,41 @@ export default async function DashboardPage() {
               <AlertDescription>{sheetsError}</AlertDescription>
             </Alert>
           ) : sheets.length === 0 ? (
-            <Card className="text-center py-12">
-              <CardContent>
-                <FileSpreadsheet className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                <CardTitle className="mb-2">No sheets yet</CardTitle>
-                <CardDescription className="mb-4">Create your first spreadsheet to get started</CardDescription>
-                <Button asChild>
-                  <Link href="/sheets/new">
-                    <Plus className="h-4 w-4 mr-2" />
-                    Create New Sheet
-                  </Link>
-                </Button>
-              </CardContent>
-            </Card>
+            <div className="text-center py-12">
+              <FileSpreadsheet className="mx-auto h-12 w-12 text-muted-foreground" />
+              <h2 className="mt-4 text-xl font-semibold">No sheets found</h2>
+              <p className="mt-2 text-muted-foreground">Create your first sheet to get started tracking your data.</p>
+              <Button className="mt-6" asChild>
+                <Link href="/sheets/new">
+                  <Plus className="mr-2 h-4 w-4" /> Create New Sheet
+                </Link>
+              </Button>
+            </div>
           ) : (
-            <div className="mt-8 text-center text-sm text-muted-foreground">
-              <p>
-                Showing {sheets.length} sheet{sheets.length !== 1 ? "s" : ""} • All sheets are publicly accessible
-              </p>
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+              {sheets.map((sheet) => (
+                <Card key={sheet.id}>
+                  <CardHeader>
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <CardTitle>{sheet.name}</CardTitle>
+                        <CardDescription>Created {new Date(sheet.created_at).toLocaleDateString()}</CardDescription>
+                      </div>
+                      <DeleteSheetButton sheetId={sheet.id} sheetName={sheet.name} variant="ghost" size="sm" />
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-muted-foreground">
+                      Last updated {new Date(sheet.updated_at).toLocaleDateString()}
+                    </p>
+                  </CardContent>
+                  <CardFooter>
+                    <Button asChild className="w-full">
+                      <Link href={`/sheets/${sheet.id}`}>Open Sheet</Link>
+                    </Button>
+                  </CardFooter>
+                </Card>
+              ))}
             </div>
           )}
         </TabsContent>
@@ -318,7 +276,6 @@ export default async function DashboardPage() {
             </CardContent>
           </Card>
         </TabsContent>
-
         <TabsContent value="material">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-2xl font-semibold">Material Management</h2>

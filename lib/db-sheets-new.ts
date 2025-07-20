@@ -48,7 +48,7 @@ interface CellData {
 export class SheetsDatabase {
   private supabase = createClient()
 
-  // دریافت بهینه داده‌های شیت
+  // Get sheet data efficiently
   async getSheetData(sheetId: string, userId: string): Promise<any> {
     try {
       const { data, error } = await this.supabase.rpc("get_sheet_data", {
@@ -68,7 +68,7 @@ export class SheetsDatabase {
     }
   }
 
-  // ایجاد شیت جدید
+  // Create new sheet
   async createSheet(name: string, description: string, userId: string, settings: any = {}): Promise<SheetData | null> {
     try {
       const { data: sheet, error: sheetError } = await this.supabase
@@ -90,7 +90,7 @@ export class SheetsDatabase {
         return null
       }
 
-      // ایجاد ستون‌های پیش‌فرض
+      // Create default columns
       const defaultColumns = [
         { name: "Site ID", type: "text", position: 0 },
         { name: "Scenario", type: "text", position: 1 },
@@ -105,25 +105,20 @@ export class SheetsDatabase {
 
       const columnsToInsert = defaultColumns.map((col) => ({
         sheet_id: sheet.id,
+        width: 120,
+        is_required: false,
+        is_unique: false,
+        validation_rules: col.validation_rules || {},
+        format_options: {},
         ...col,
       }))
 
       await this.supabase.from("columns").insert(columnsToInsert)
 
-      // ایجاد سطر اول خالی
-      const { data: firstRow } = await this.supabase
-        .from("rows")
-        .insert([
-          {
-            sheet_id: sheet.id,
-            position: 0,
-            metadata: { created_by: userId },
-          },
-        ])
-        .select()
-        .single()
+      // Create first empty row using safe method
+      await this.addRowSafely(sheet.id, userId)
 
-      // ثبت در تاریخچه
+      // Log action in history
       await this.logAction(sheet.id, userId, "create_sheet", {
         sheet_name: name,
         columns_count: defaultColumns.length,
@@ -136,7 +131,129 @@ export class SheetsDatabase {
     }
   }
 
-  // به‌روزرسانی دسته‌ای سلول‌ها
+  // Safe method to add a row with duplicate prevention
+  private async addRowSafely(sheetId: string, userId: string, maxRetries = 3): Promise<RowData | null> {
+    let retryCount = 0
+
+    while (retryCount < maxRetries) {
+      try {
+        // Try to use the comprehensive database function first
+        const { data: newRowData, error: functionError } = await this.supabase.rpc("add_row_with_cells", {
+          sheet_id_param: sheetId,
+          user_id_param: userId,
+        })
+
+        if (!functionError && newRowData) {
+          return {
+            id: newRowData.id,
+            sheet_id: newRowData.sheet_id,
+            position: newRowData.position,
+            is_deleted: newRowData.is_deleted,
+            metadata: newRowData.metadata,
+            cells: newRowData.cells || {},
+          }
+        }
+
+        // Try the simpler database function
+        const { data: newRow, error: simpleFunctionError } = await this.supabase.rpc("add_new_row_with_position", {
+          sheet_id_param: sheetId,
+          user_id_param: userId,
+        })
+
+        if (!simpleFunctionError && newRow && newRow.length > 0) {
+          return { ...newRow[0], cells: {} }
+        }
+
+        // Fallback method with position calculation
+        const { data: maxPositionResult } = await this.supabase
+          .from("rows")
+          .select("position")
+          .eq("sheet_id", sheetId)
+          .eq("is_deleted", false)
+          .order("position", { ascending: false })
+          .limit(1)
+
+        const basePosition = (maxPositionResult?.[0]?.position || -1) + 1
+        const nextPosition = basePosition + Math.floor(Math.random() * 1000) // Add random offset
+
+        // Check if this position already exists
+        const { data: existingRow } = await this.supabase
+          .from("rows")
+          .select("id")
+          .eq("sheet_id", sheetId)
+          .eq("position", nextPosition)
+          .eq("is_deleted", false)
+          .maybeSingle()
+
+        if (existingRow) {
+          retryCount++
+          continue // Try again with a different position
+        }
+
+        const { data: newRowFallback, error } = await this.supabase
+          .from("rows")
+          .insert([
+            {
+              sheet_id: sheetId,
+              position: nextPosition,
+              metadata: { created_by: userId },
+              is_deleted: false,
+            },
+          ])
+          .select()
+          .single()
+
+        if (error) {
+          if (error.code === "23505" && retryCount < maxRetries - 1) {
+            // Unique constraint violation, retry
+            retryCount++
+            await new Promise((resolve) => setTimeout(resolve, 100 * retryCount))
+            continue
+          }
+          throw error
+        }
+
+        return { ...newRowFallback, cells: {} }
+      } catch (err: any) {
+        if (err.code === "23505" && retryCount < maxRetries - 1) {
+          retryCount++
+          await new Promise((resolve) => setTimeout(resolve, 100 * retryCount))
+          continue
+        }
+        console.error("Exception in addRowSafely:", err)
+        break
+      }
+    }
+
+    // Final fallback: use timestamp-based position
+    try {
+      const timestampPosition = Date.now()
+      const { data: newRow, error } = await this.supabase
+        .from("rows")
+        .insert([
+          {
+            sheet_id: sheetId,
+            position: timestampPosition,
+            metadata: { created_by: userId, fallback_position: true },
+            is_deleted: false,
+          },
+        ])
+        .select()
+        .single()
+
+      if (error) {
+        console.error("Error with timestamp position:", error)
+        return null
+      }
+
+      return { ...newRow, cells: {} }
+    } catch (err) {
+      console.error("Final fallback failed:", err)
+      return null
+    }
+  }
+
+  // Bulk update cells
   async bulkUpdateCells(
     updates: Array<{
       row_id: string
@@ -155,14 +272,14 @@ export class SheetsDatabase {
         return false
       }
 
-      return data.success
+      return data?.success || true
     } catch (err) {
       console.error("Exception in bulkUpdateCells:", err)
       return false
     }
   }
 
-  // جستجوی بهینه
+  // Optimized search
   async searchSheetData(
     sheetId: string,
     searchTerm: string,
@@ -187,10 +304,10 @@ export class SheetsDatabase {
     }
   }
 
-  // اضافه کردن ستون جدید
+  // Add new column
   async addColumn(sheetId: string, columnData: Partial<ColumnData>, userId: string): Promise<ColumnData | null> {
     try {
-      // دریافت آخرین position
+      // Get last position
       const { data: lastColumn } = await this.supabase
         .from("columns")
         .select("position")
@@ -223,7 +340,7 @@ export class SheetsDatabase {
         return null
       }
 
-      // ثبت در تاریخچه
+      // Log action in history
       await this.logAction(sheetId, userId, "add_column", {
         column_name: columnData.name,
         column_type: columnData.type,
@@ -236,63 +353,44 @@ export class SheetsDatabase {
     }
   }
 
-  // اضافه کردن سطر جدید
+  // Add new row using safe method
   async addRow(sheetId: string, userId: string): Promise<RowData | null> {
-    try {
-      // دریافت آخرین position
-      const { data: lastRow } = await this.supabase
-        .from("rows")
-        .select("position")
-        .eq("sheet_id", sheetId)
-        .eq("is_deleted", false)
-        .order("position", { ascending: false })
-        .limit(1)
-        .single()
+    const newRow = await this.addRowSafely(sheetId, userId)
 
-      const newPosition = lastRow ? lastRow.position + 1 : 0
-
-      const { data: newRow, error } = await this.supabase
-        .from("rows")
-        .insert([
-          {
-            sheet_id: sheetId,
-            position: newPosition,
-            metadata: { created_by: userId },
-          },
-        ])
-        .select()
-        .single()
-
-      if (error) {
-        console.error("Error adding row:", error)
-        return null
-      }
-
-      // دریافت ستون‌ها برای ایجاد سلول‌های پیش‌فرض
-      const { data: columns } = await this.supabase
-        .from("columns")
-        .select("id, type, default_value")
-        .eq("sheet_id", sheetId)
-
-      if (columns && columns.length > 0) {
-        const cells = columns.map((column) => ({
-          row_id: newRow.id,
-          column_id: column.id,
-          value: JSON.stringify(this.getDefaultValue(column.type, column.default_value)),
-          validation_status: "valid" as const,
-        }))
-
-        await this.supabase.from("cells").insert(cells)
-      }
-
-      return { ...newRow, cells: {} }
-    } catch (err) {
-      console.error("Exception in addRow:", err)
+    if (!newRow) {
       return null
     }
+
+    // Get columns to create default cells if not already created
+    const { data: columns } = await this.supabase
+      .from("columns")
+      .select("id, type, default_value")
+      .eq("sheet_id", sheetId)
+
+    if (columns && columns.length > 0 && Object.keys(newRow.cells).length === 0) {
+      const cells = columns.map((column) => ({
+        row_id: newRow.id,
+        column_id: column.id,
+        value: this.getDefaultValue(column.type, column.default_value),
+        validation_status: "valid" as const,
+      }))
+
+      await this.supabase.from("cells").insert(cells)
+
+      // Update the cells in the returned object
+      newRow.cells = columns.reduce(
+        (acc, col) => {
+          acc[col.id] = this.getDefaultValue(col.type, col.default_value)
+          return acc
+        },
+        {} as Record<string, any>,
+      )
+    }
+
+    return newRow
   }
 
-  // حذف سطر (soft delete)
+  // Delete row (soft delete)
   async deleteRow(rowId: string, userId: string): Promise<boolean> {
     try {
       const { error } = await this.supabase.from("rows").update({ is_deleted: true }).eq("id", rowId)
@@ -309,7 +407,7 @@ export class SheetsDatabase {
     }
   }
 
-  // دریافت آمار شیت
+  // Get sheet stats
   async getSheetStats(sheetId: string): Promise<any> {
     try {
       const { data, error } = await this.supabase.from("sheet_stats").select("*").eq("sheet_id", sheetId).single()
@@ -326,7 +424,7 @@ export class SheetsDatabase {
     }
   }
 
-  // ایجاد لینک عمومی
+  // Create public link
   async createPublicLink(
     sheetId: string,
     userId: string,
@@ -362,7 +460,7 @@ export class SheetsDatabase {
     }
   }
 
-  // ثبت عملیات در تاریخچه
+  // Log action in history
   private async logAction(sheetId: string, userId: string, action: string, details: any): Promise<void> {
     try {
       await this.supabase.from("sheet_history").insert([
@@ -378,7 +476,7 @@ export class SheetsDatabase {
     }
   }
 
-  // دریافت مقدار پیش‌فرض بر اساس نوع ستون
+  // Get default value based on column type
   private getDefaultValue(type: string, defaultValue?: string): any {
     if (defaultValue) return defaultValue
 
@@ -396,7 +494,7 @@ export class SheetsDatabase {
     }
   }
 
-  // پاک‌سازی داده‌های قدیمی
+  // Cleanup old data
   async cleanupOldData(): Promise<boolean> {
     try {
       const { error } = await this.supabase.rpc("cleanup_old_data")
@@ -414,5 +512,5 @@ export class SheetsDatabase {
   }
 }
 
-// صادر کردن instance
+// Export instance
 export const sheetsDB = new SheetsDatabase()

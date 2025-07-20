@@ -1,98 +1,50 @@
 import { createClient } from "@/lib/supabase/server"
 
 export async function checkIsAdmin(): Promise<boolean> {
+  const supabase = createClient()
+
   try {
-    const supabase = createClient()
-
-    // Get current user
+    // Get the current session
     const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
+      data: { session },
+    } = await supabase.auth.getSession()
 
-    if (authError || !user) {
+    if (!session) {
       return false
     }
 
-    // Try using the RPC function first
-    try {
-      const { data: isAdminRpc, error: rpcError } = await supabase.rpc("check_user_is_admin", {
-        input_user_id: user.id,
-      })
+    // Get the user's ID from the session
+    const userId = session.user?.id
 
-      if (!rpcError && typeof isAdminRpc === "boolean") {
-        return isAdminRpc
-      }
-    } catch (rpcError) {
-      console.log("RPC function not available, using direct query")
+    if (!userId) {
+      return false
     }
 
-    // Fallback: Direct query to admin_users table
-    try {
-      const { data: adminData, error: adminError } = await supabase
-        .from("admin_users")
-        .select("is_active")
-        .eq("user_id", user.id)
-        .single()
+    // Check if the user is in the admin_users table
+    const { data: adminUser, error } = await supabase.from("admin_users").select("id").eq("user_id", userId).single()
 
-      if (!adminError && adminData) {
-        return adminData.is_active !== false // true if null or true
-      }
-    } catch (directError) {
-      console.log("Direct admin query failed, checking by email")
+    if (error && error.code !== "PGRST116") {
+      // PGRST116 is "no rows returned" which is expected if not an admin
+      console.error("Error checking admin status:", error)
+      return false
     }
 
-    // Final fallback: Check if user email is in a predefined admin list
-    const adminEmails = [
-      "admin@example.com", // Add your admin emails here
-    ]
+    // If the user is in the admin_users table, they're an admin
+    if (adminUser) {
+      return true
+    }
 
-    return adminEmails.includes(user.email || "")
-  } catch (error) {
-    console.error("Error checking admin status:", error)
+    // Get the user's email from the session
+    const userEmail = session.user?.email
+
+    if (!userEmail) {
+      return false
+    }
+
+    // For now, we'll consider any user with email pouria.raz@mtnirancell.ir as an admin
+    return userEmail === "pouria.raz@mtnirancell.ir"
+  } catch (e) {
+    console.error("Exception checking admin status:", e)
     return false
-  }
-}
-
-export async function getCurrentUser() {
-  try {
-    const supabase = createClient()
-    const {
-      data: { user },
-      error,
-    } = await supabase.auth.getUser()
-
-    if (error || !user) {
-      return null
-    }
-
-    return user
-  } catch (error) {
-    console.error("Error getting current user:", error)
-    return null
-  }
-}
-
-export async function getUserProfile(userId: string) {
-  try {
-    const supabase = createClient()
-    const { data: profile, error } = await supabase.from("profiles").select("*").eq("id", userId).single()
-
-    if (error) {
-      console.error("Error getting user profile:", error)
-      return null
-    }
-
-    return profile
-  } catch (error) {
-    console.error("Error getting user profile:", error)
-    return null
-  }
-}
-
-export async function requireAdmin(): Promise<void> {
-  const isAdmin = await checkIsAdmin()
-  if (!isAdmin) {
-    throw new Error("Admin access required")
   }
 }
