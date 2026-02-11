@@ -9,7 +9,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { User, LogOut, Menu, Home } from "lucide-react"
+import { User, LogOut, Menu, Home, Moon, Sun } from "lucide-react"
+import { ThemeSwitcher } from "@/components/theme-switcher"
 
 export const dynamic = "force-dynamic"
 export const revalidate = 0
@@ -55,6 +56,7 @@ export async function Header() {
                   Navigation
                 </Link>
               </Button>
+              <ThemeSwitcher />
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" className="relative h-8 w-8 rounded-full">
