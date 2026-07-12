@@ -62,27 +62,68 @@ export function ReserveTrackerClient({ initialItems }: ReserveTrackerClientProps
   const handleAddItem = async () => {
     if (!newMrNumber.trim()) return
 
+    // Split on whitespace, commas, and newlines so multiple numbers can be added at once
+    const mrNumbers = newMrNumber
+      .split(/[\s,;]+/)
+      .map((num) => num.trim())
+      .filter((num) => num !== "")
+
+    if (mrNumbers.length === 0) return
+
     try {
       setIsLoading(true)
 
-      // Check if MR number already exists in the current items
-      const exists = items.some((item) => item.mr_number === newMrNumber.trim())
-      if (exists) {
+      // Single number: keep the simple add flow
+      if (mrNumbers.length === 1) {
+        const single = mrNumbers[0]
+        const exists = items.some((item) => item.mr_number === single)
+        if (exists) {
+          toast({
+            title: "Duplicate MR Number",
+            description: `${single} already exists in your list.`,
+            variant: "destructive",
+          })
+          return
+        }
+
+        const newItem = await addReserveItem(single)
+        setItems([newItem, ...items])
+        setNewMrNumber("")
         toast({
-          title: "Duplicate MR Number",
-          description: `${newMrNumber} already exists in your list.`,
-          variant: "destructive",
+          title: "MR Number added",
+          description: `${single} has been added successfully.`,
         })
         return
       }
 
-      const newItem = await addReserveItem(newMrNumber.trim())
-      setItems([newItem, ...items])
+      // Multiple numbers: use the bulk import flow (also skips duplicates)
+      const result = await importReserveItems(mrNumbers)
+
+      if (result.data.length > 0) {
+        setItems([...result.data, ...items])
+      }
+
       setNewMrNumber("")
-      toast({
-        title: "MR Number added",
-        description: `${newMrNumber} has been added successfully.`,
-      })
+
+      if (result.duplicatesCount > 0) {
+        if (result.data.length > 0) {
+          toast({
+            title: "MR Numbers added",
+            description: `${result.data.length} added. ${result.duplicatesCount} duplicates were skipped.`,
+          })
+        } else {
+          toast({
+            title: "No new MR Numbers added",
+            description: `All ${result.duplicatesCount} MR Numbers were duplicates and were skipped.`,
+            variant: "destructive",
+          })
+        }
+      } else {
+        toast({
+          title: "MR Numbers added",
+          description: `${result.data.length} MR Numbers have been added successfully.`,
+        })
+      }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "There was an error adding the MR Number."
 
@@ -397,7 +438,7 @@ export function ReserveTrackerClient({ initialItems }: ReserveTrackerClientProps
       <CardContent className="p-6">
         <div className="flex gap-2 mb-6">
           <Input
-            placeholder="Enter MR Number"
+            placeholder="Enter MR Number(s) — separate with spaces"
             value={newMrNumber}
             onChange={(e) => setNewMrNumber(e.target.value)}
             onKeyDown={handleKeyDown}
