@@ -12,6 +12,10 @@ export const metadata: Metadata = {
     generator: 'v0.dev'
 }
 
+// Every page depends on the user's session cookie, so render dynamically
+// and skip static prerendering (which causes "cookies called outside request scope").
+export const dynamic = "force-dynamic"
+
 export default function RootLayout({
   children,
 }: Readonly<{
